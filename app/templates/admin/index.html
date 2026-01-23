@@ -43,7 +43,7 @@
 <div class="content-section">
     <div class="section-header">
         <h3>Team 列表</h3>
-        <a href="/admin/teams/import" class="btn btn-primary">导入 Team</a>
+        <button onclick="showModal('importTeamModal')" class="btn btn-primary">导入 Team</button>
     </div>
 
     {% if teams %}
@@ -73,21 +73,21 @@
                     <td>{{ team.subscription_plan or '-' }}</td>
                     <td>
                         {% if team.expires_at %}
-                            {{ team.expires_at|format_datetime }}
+                        {{ team.expires_at|format_datetime }}
                         {% else %}
-                            -
+                        -
                         {% endif %}
                     </td>
                     <td>
                         <span class="status-badge status-{{ team.status }}">
                             {% if team.status == 'active' %}
-                                可用
+                            可用
                             {% elif team.status == 'full' %}
-                                已满
+                            已满
                             {% elif team.status == 'expired' %}
-                                已过期
+                            已过期
                             {% else %}
-                                异常
+                            异常
                             {% endif %}
                         </span>
                     </td>
@@ -99,7 +99,8 @@
                             <button onclick="refreshTeam({{ team.id }})" class="btn btn-sm btn-secondary" title="刷新">
                                 刷新
                             </button>
-                            <button onclick="deleteTeam({{ team.id }}, '{{ team.email }}')" class="btn btn-sm btn-danger" title="删除">
+                            <button onclick="deleteTeam({{ team.id }}, '{{ team.email }}')"
+                                class="btn btn-sm btn-danger" title="删除">
                                 删除
                             </button>
                         </div>
@@ -112,7 +113,7 @@
     {% else %}
     <div class="empty-state">
         <p>暂无 Team 数据</p>
-        <a href="/admin/teams/import" class="btn btn-primary">立即导入</a>
+        <button onclick="showModal('importTeamModal')" class="btn btn-primary">立即导入</button>
     </div>
     {% endif %}
 </div>
@@ -120,56 +121,56 @@
 
 {% block extra_js %}
 <script>
-function viewMembers(teamId) {
-    window.location.href = `/admin/teams/${teamId}/members`;
-}
-
-async function refreshTeam(teamId) {
-    if (!confirm('确定要刷新此 Team 的信息吗?')) {
-        return;
+    function viewMembers(teamId) {
+        window.location.href = `/admin/teams/${teamId}/members`;
     }
 
-    try {
-        showToast('正在刷新...', 'info');
-        const response = await fetch(`/api/teams/${teamId}/refresh`, {
-            method: 'GET'
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-            showToast('刷新成功', 'success');
-            setTimeout(() => location.reload(), 1000);
-        } else {
-            showToast(data.error || '刷新失败', 'error');
+    async function refreshTeam(teamId) {
+        if (!confirm('确定要刷新此 Team 的信息吗?')) {
+            return;
         }
-    } catch (error) {
-        showToast('网络错误', 'error');
-    }
-}
 
-async function deleteTeam(teamId, email) {
-    if (!confirm(`确定要删除 Team "${email}" 吗?\n\n此操作不可恢复!`)) {
-        return;
-    }
+        try {
+            showToast('正在刷新...', 'info');
+            const response = await fetch(`/api/teams/${teamId}/refresh`, {
+                method: 'GET'
+            });
 
-    try {
-        showToast('正在删除...', 'info');
-        const response = await fetch(`/admin/teams/${teamId}/delete`, {
-            method: 'POST'
-        });
+            const data = await response.json();
 
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-            showToast('删除成功', 'success');
-            setTimeout(() => location.reload(), 1000);
-        } else {
-            showToast(data.error || '删除失败', 'error');
+            if (response.ok && data.success) {
+                showToast('刷新成功', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showToast(data.error || '刷新失败', 'error');
+            }
+        } catch (error) {
+            showToast('网络错误', 'error');
         }
-    } catch (error) {
-        showToast('网络错误', 'error');
     }
-}
+
+    async function deleteTeam(teamId, email) {
+        if (!confirm(`确定要删除 Team "${email}" 吗?\n\n此操作不可恢复!`)) {
+            return;
+        }
+
+        try {
+            showToast('正在删除...', 'info');
+            const response = await fetch(`/admin/teams/${teamId}/delete`, {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                showToast('删除成功', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showToast(data.error || '删除失败', 'error');
+            }
+        } catch (error) {
+            showToast('网络错误', 'error');
+        }
+    }
 </script>
 {% endblock %}

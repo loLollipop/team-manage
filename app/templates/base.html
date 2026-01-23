@@ -33,7 +33,7 @@
                         <span class="menu-text">控制台</span>
                     </a>
                 </li>
-                <li class="menu-item {% if active_page == 'teams' %}active{% endif %}">
+                <li class="menu-item {% if active_page == 'teams' %}active{% endif %}" style="display: none;">
                     <a href="/admin/teams/import">
                         <span class="menu-icon">👥</span>
                         <span class="menu-text">Team导入</span>
@@ -76,6 +76,115 @@
     <footer class="footer">
         <p>&copy; 2026 GPT Team 管理系统 v0.1.0</p>
     </footer>
+
+    <!-- 导入 Team 模态框 -->
+    <div id="importTeamModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>导入 Team</h3>
+                <button class="modal-close" onclick="hideModal('importTeamModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-tabs">
+                    <button class="modal-tab-btn active" onclick="switchModalTab('importTeamModal', 'singleImport')">单个导入</button>
+                    <button class="modal-tab-btn" onclick="switchModalTab('importTeamModal', 'batchImport')">批量导入</button>
+                </div>
+
+                <div id="singleImport" class="import-panel">
+                    <form id="singleImportForm" onsubmit="handleSingleImport(event)">
+                        <div class="form-group">
+                            <label>Access Token (AT) <span class="required">*</span></label>
+                            <textarea name="accessToken" class="form-control" rows="4" placeholder="eyJhbGciOiJSUzI1Ni..." required></textarea>
+                            <small class="form-text">必填项，以 eyJ 开头的 JWT Token</small>
+                        </div>
+                        <div class="form-group">
+                            <label>邮箱</label>
+                            <input type="email" name="email" class="form-control" placeholder="admin@example.com">
+                            <small class="form-text">可选，如果不填写将从 Token 中自动提取</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Account ID</label>
+                            <input type="text" name="accountId" class="form-control" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                            <small class="form-text">可选，如果不填写将从 API 自动获取</small>
+                        </div>
+                        <button type="submit" class="btn btn-primary">导入</button>
+                    </form>
+                </div>
+
+                <div id="batchImport" class="import-panel" style="display: none;">
+                    <form id="batchImportForm" onsubmit="handleBatchImport(event)">
+                        <div class="form-group">
+                            <label>批量导入内容 <span class="required">*</span></label>
+                            <textarea name="batchContent" class="form-control" rows="8" placeholder="一行一个 AT Token..." required></textarea>
+                        </div>
+                        <div id="batchResultsContainer" style="display: none; margin-bottom: 1rem;">
+                            <h4>导入结果</h4>
+                            <div id="batchResults"></div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">批量导入</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 生成兑换码 模态框 -->
+    <div id="generateCodeModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>生成兑换码</h3>
+                <button class="modal-close" onclick="hideModal('generateCodeModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-tabs">
+                    <button class="modal-tab-btn active" onclick="switchModalTab('generateCodeModal', 'singleGenerate')">单个生成</button>
+                    <button class="modal-tab-btn" onclick="switchModalTab('generateCodeModal', 'batchGenerate')">批量生成</button>
+                </div>
+
+                <div id="singleGenerate" class="card-body">
+                    <form onsubmit="generateSingle(event)">
+                        <div class="form-group">
+                            <label>自定义兑换码 (可选)</label>
+                            <input type="text" name="customCode" class="form-control" placeholder="留空则自动生成" maxlength="32">
+                        </div>
+                        <div class="form-group">
+                            <label>有效期 (天数, 可选)</label>
+                            <input type="number" name="expiresDays" class="form-control" placeholder="留空则永久有效" min="1" max="3650">
+                        </div>
+                        <button type="submit" class="btn btn-primary">生成兑换码</button>
+                    </form>
+                    <div id="singleResult" class="result-box" style="display: none;">
+                        <h4>生成成功</h4>
+                        <div class="code-display">
+                            <code id="generatedCode"></code>
+                            <button onclick="copyCode()" class="btn btn-sm btn-secondary">复制</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="batchGenerate" class="card-body" style="display: none;">
+                    <form onsubmit="generateBatch(event)">
+                        <div class="form-group">
+                            <label>生成数量 *</label>
+                            <input type="number" name="count" class="form-control" placeholder="请输入生成数量" min="1" max="1000" required>
+                        </div>
+                        <div class="form-group">
+                            <label>有效期 (天数, 可选)</label>
+                            <input type="number" name="expiresDays" class="form-control" placeholder="留空则永久有效" min="1" max="3650">
+                        </div>
+                        <button type="submit" class="btn btn-primary">批量生成</button>
+                    </form>
+                    <div id="batchResult" class="result-box" style="display: none;">
+                        <h4>批量生成成功</h4>
+                        <p>成功生成 <strong id="batchTotal">0</strong> 个兑换码</p>
+                        <textarea id="batchCodes" readonly rows="5" class="form-control" style="margin: 10px 0;"></textarea>
+                        <button onclick="copyBatchCodes()" class="btn btn-sm btn-secondary">复制全部</button>
+                        <button onclick="downloadCodes()" class="btn btn-sm btn-secondary">下载</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- 通用提示框 -->
     <div id="toast" class="toast"></div>

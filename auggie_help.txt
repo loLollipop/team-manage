@@ -1,0 +1,67 @@
+Usage: auggie [instruction] [options]
+
+Auggie 鈥?Augment CLI Agent. Run interactive or automated tasks in your terminal.
+
+Input
+  [instruction]                Positional instruction
+  -i, --instruction <text>     Instruction (mutually exclusive with --instruction-file)
+  -if, --instruction-file <p>  Instruction file (mutually exclusive with --instruction)
+  --image <path...>            Image file(s) to attach (PNG, JPEG, GIF, WEBP)
+
+Output & Interaction
+  -p, --print                  Print mode (one-shot). Note that the indexing confirmation
+                               prompt is skipped in print mode. Only use --print from a
+                               workspace root that you want to index.
+  -q, --quiet                  Only show final assistant message
+  --output-format <format>     Output format (only works with --print): "text" (default) or "json"
+  -a, --ask                    Enable ask mode for retrieval and non-editing tools only
+  --acp                        Enable ACP mode
+
+Configuration Options
+  -m, --model <id>             Select model to use
+  -w, --workspace-root <path>  Workspace root (auto-detects git root if absent)
+  --rules <path>               Additional rules file (repeatable)
+  --augment-cache-dir <path>   Cache directory (default: ~/.augment)
+  --retry-timeout <sec>        Timeout for rate-limit retries (seconds)
+  --max-turns <n>              Limit the number of agentic turns (only works with --print)
+  --allow-indexing             Skip the indexing confirmation screen in interactive mode
+
+Session Options
+  -c, --continue               Continue from the most recent session
+  -r, --resume [sessionId]     Resume a specific session by ID or prefix (omit to pick interactively)
+  --dont-save-session          Do not save conversation history
+
+Authentication Options
+  --augment-token-file <path>  Path to file containing authentication token
+  --github-api-token <path>    Path to file containing GitHub API token
+
+Tools & Integrations
+  --mcp-config <cfg>           MCP server configuration (repeatable)
+  --permission <rule>          Set tool permissions with 'tool-name:policy' format (repeatable)
+                               Command-line permissions take precedence over settings permissions
+                               Possible policies: allow, deny, ask-user, webhook-policy(url), script-policy(path)
+  --remove-tool <tool-name>    Remove a specific tool by name (repeatable)
+                               Command-line removed tools take precedence over settings
+  --shell <name>               Select shell: bash | zsh | fish | powershell
+  --startup-script <script>    Inline startup script to run before each command
+  --startup-script-file <path> Load startup script from file
+
+Environment Variables
+  AUGMENT_SESSION_AUTH  OAuth session data (same format as ~/.augment/session.json)
+  GITHUB_API_TOKEN      GitHub API token
+
+For more information, visit: https://docs.augmentcode.com
+
+Commands
+  login                        Authenticate with Augment using OAuth
+  logout                       Log out of Augment and remove stored OAuth session
+  token                        Manage authentication tokens
+  session                      Manage CLI sessions
+  model                        Model-related operations
+  account                      View account and billing information
+  upgrade                      Upgrade auggie to the latest version
+  command                      Run, list, or get help for custom commands
+  mcp                          Manage MCP servers
+  tools                        Manage tool settings (list/enable/disable tools)
+
+  For more help on a command: auggie <command> --help

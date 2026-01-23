@@ -149,41 +149,6 @@ async def delete_team(
         )
 
 
-@router.get("/teams/import", response_class=HTMLResponse)
-async def team_import_page(
-    request: Request,
-    current_user: dict = Depends(require_admin)
-):
-    """
-    Team 导入页面
-
-    Args:
-        request: FastAPI Request 对象
-        current_user: 当前用户（需要登录）
-
-    Returns:
-        Team 导入页面 HTML
-    """
-    try:
-        from app.main import templates
-
-        logger.info("管理员访问 Team 导入页面")
-
-        return templates.TemplateResponse(
-            "admin/teams/import.html",
-            {
-                "request": request,
-                "user": current_user,
-                "active_page": "teams"
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"加载 Team 导入页面失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"加载页面失败: {str(e)}"
-        )
 
 
 @router.post("/teams/import")
@@ -493,41 +458,6 @@ async def codes_list_page(
         )
 
 
-@router.get("/codes/generate", response_class=HTMLResponse)
-async def codes_generate_page(
-    request: Request,
-    current_user: dict = Depends(require_admin)
-):
-    """
-    兑换码生成页面
-
-    Args:
-        request: FastAPI Request 对象
-        current_user: 当前用户（需要登录）
-
-    Returns:
-        兑换码生成页面 HTML
-    """
-    try:
-        from app.main import templates
-
-        logger.info("管理员访问兑换码生成页面")
-
-        return templates.TemplateResponse(
-            "admin/codes/generate.html",
-            {
-                "request": request,
-                "user": current_user,
-                "active_page": "codes"
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"加载兑换码生成页面失败: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"加载页面失败: {str(e)}"
-        )
 
 
 @router.post("/codes/generate")

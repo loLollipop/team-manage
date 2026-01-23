@@ -84,7 +84,7 @@ function confirmAction(message) {
 }
 
 // 页面加载完成后执行
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // 检查认证状态
     checkAuthStatus();
 });
@@ -107,4 +107,242 @@ async function checkAuthStatus() {
     } catch (error) {
         console.error('检查认证状态失败:', error);
     }
+}
+
+// === 模态框控制逻辑 ===
+
+function showModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.classList.add('show');
+        document.body.style.overflow = 'hidden'; // 防止背景滚动
+    }
+}
+
+function hideModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.classList.remove('show');
+        document.body.style.overflow = '';
+    }
+}
+
+function switchModalTab(modalId, tabId) {
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+
+    // 切换按钮状态
+    const tabs = modal.querySelectorAll('.modal-tab-btn');
+    tabs.forEach(tab => {
+        if (tab.getAttribute('onclick').includes(`'${tabId}'`)) {
+            tab.classList.add('active');
+        } else {
+            tab.classList.remove('active');
+        }
+    });
+
+    // 切换面板显示
+    const panels = modal.querySelectorAll('.import-panel, .card-body');
+    panels.forEach(panel => {
+        if (panel.id === tabId) {
+            panel.style.display = 'block';
+        } else {
+            panel.style.display = 'none';
+        }
+    });
+}
+
+// === Team 导入逻辑 ===
+
+async function handleSingleImport(event) {
+    event.preventDefault();
+    const form = event.target;
+    const accessToken = form.accessToken.value.trim();
+    const email = form.email.value.trim();
+    const accountId = form.accountId.value.trim();
+    const submitButton = form.querySelector('button[type="submit"]');
+
+    submitButton.disabled = true;
+    submitButton.textContent = '导入中...';
+
+    try {
+        const result = await apiCall('/admin/teams/import', {
+            method: 'POST',
+            body: JSON.stringify({
+                import_type: 'single',
+                access_token: accessToken,
+                email: email || null,
+                account_id: accountId || null
+            })
+        });
+
+        if (result.success) {
+            showToast('Team 导入成功！', 'success');
+            form.reset();
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast(result.error || '导入失败', 'error');
+        }
+    } catch (error) {
+        showToast('网络错误', 'error');
+    } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = '导入';
+    }
+}
+
+async function handleBatchImport(event) {
+    event.preventDefault();
+    const form = event.target;
+    const batchContent = form.batchContent.value.trim();
+    const submitButton = form.querySelector('button[type="submit"]');
+    const resultsContainer = document.getElementById('batchResultsContainer');
+    const resultsDiv = document.getElementById('batchResults');
+
+    submitButton.disabled = true;
+    submitButton.textContent = '导入中...';
+
+    try {
+        const result = await apiCall('/admin/teams/import', {
+            method: 'POST',
+            body: JSON.stringify({
+                import_type: 'batch',
+                content: batchContent
+            })
+        });
+
+        if (result.success) {
+            const data = result.data;
+            let html = `<div class="batch-summary">
+                <p>总数: ${data.total} | 成功: <span class="text-success">${data.success_count}</span> | 失败: <span class="text-danger">${data.failed_count}</span></p>
+            </div>`;
+
+            if (data.results && data.results.length > 0) {
+                html += '<div class="batch-results"><table class="data-table"><thead><tr><th>邮箱</th><th>状态</th><th>消息</th></tr></thead><tbody>';
+                data.results.forEach(res => {
+                    const statusClass = res.success ? 'text-success' : 'text-danger';
+                    const statusText = res.success ? '成功' : '失败';
+                    html += `<tr>
+                        <td>${res.email}</td>
+                        <td class="${statusClass}">${statusText}</td>
+                        <td>${res.success ? res.message : res.error}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table></div>';
+            }
+
+            resultsDiv.innerHTML = html;
+            resultsContainer.style.display = 'block';
+
+            if (data.failed_count === 0) {
+                showToast('全部导入成功！', 'success');
+                setTimeout(() => location.reload(), 2000);
+            }
+        } else {
+            showToast(result.error || '批量导入失败', 'error');
+        }
+    } catch (error) {
+        showToast('网络错误', 'error');
+    } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = '批量导入';
+    }
+}
+
+// === 兑换码生成逻辑 ===
+
+async function generateSingle(event) {
+    event.preventDefault();
+    const form = event.target;
+    const customCode = form.customCode.value.trim();
+    const expiresDays = form.expiresDays.value;
+
+    const data = { type: 'single' };
+    if (customCode) data.code = customCode;
+    if (expiresDays) data.expires_days = parseInt(expiresDays);
+
+    const result = await apiCall('/admin/codes/generate', {
+        method: 'POST',
+        body: JSON.stringify(data)
+    });
+
+    if (result.success) {
+        document.getElementById('generatedCode').textContent = result.data.code;
+        document.getElementById('singleResult').style.display = 'block';
+        form.reset();
+        showToast('兑换码生成成功', 'success');
+        // 如果在列表中，延迟刷新
+        if (window.location.pathname === '/admin/codes') {
+            setTimeout(() => location.reload(), 2000);
+        }
+    } else {
+        showToast(result.error || '生成失败', 'error');
+    }
+}
+
+async function generateBatch(event) {
+    event.preventDefault();
+    const form = event.target;
+    const count = parseInt(form.count.value);
+    const expiresDays = form.expiresDays.value;
+
+    if (count < 1 || count > 1000) {
+        showToast('生成数量必须在1-1000之间', 'error');
+        return;
+    }
+
+    const data = { type: 'batch', count: count };
+    if (expiresDays) data.expires_days = parseInt(expiresDays);
+
+    const result = await apiCall('/admin/codes/generate', {
+        method: 'POST',
+        body: JSON.stringify(data)
+    });
+
+    if (result.success) {
+        document.getElementById('batchTotal').textContent = result.data.total;
+        document.getElementById('batchCodes').value = result.data.codes.join('\n');
+        document.getElementById('batchResult').style.display = 'block';
+        form.reset();
+        showToast(`成功生成 ${result.data.total} 个兑换码`, 'success');
+        if (window.location.pathname === '/admin/codes') {
+            setTimeout(() => location.reload(), 3000);
+        }
+    } else {
+        showToast(result.error || '生成失败', 'error');
+    }
+}
+
+// === 辅助函数 ===
+
+function copyCode() {
+    const code = document.getElementById('generatedCode').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        showToast('已复制到剪贴板', 'success');
+    }).catch(() => {
+        showToast('复制失败', 'error');
+    });
+}
+
+function copyBatchCodes() {
+    const codes = document.getElementById('batchCodes').value;
+    navigator.clipboard.writeText(codes).then(() => {
+        showToast('已复制到剪贴板', 'success');
+    }).catch(() => {
+        showToast('复制失败', 'error');
+    });
+}
+
+function downloadCodes() {
+    const codes = document.getElementById('batchCodes').value;
+    const blob = new Blob([codes], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `redemption_codes_${new Date().getTime()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('下载成功', 'success');
 }

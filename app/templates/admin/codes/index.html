@@ -48,7 +48,7 @@
         <button onclick="filterByStatus('expired')" class="btn btn-sm btn-danger" id="filter-expired">已过期</button>
     </div>
     <div class="action-buttons">
-        <a href="/admin/codes/generate" class="btn btn-primary">生成兑换码</a>
+        <button onclick="showModal('generateCodeModal')" class="btn btn-primary">生成兑换码</button>
         <button onclick="exportCodes()" class="btn btn-secondary">导出兑换码</button>
     </div>
 </div>
@@ -106,7 +106,7 @@
     {% else %}
     <div class="empty-state">
         <p>暂无兑换码数据</p>
-        <a href="/admin/codes/generate" class="btn btn-primary">立即生成</a>
+        <button onclick="showModal('generateCodeModal')" class="btn btn-primary">立即生成</button>
     </div>
     {% endif %}
 </div>
@@ -114,92 +114,92 @@
 
 {% block extra_js %}
 <script>
-// 当前筛选状态
-let currentFilter = 'all';
+    // 当前筛选状态
+    let currentFilter = 'all';
 
-// 按状态筛选
-function filterByStatus(status) {
-    currentFilter = status;
+    // 按状态筛选
+    function filterByStatus(status) {
+        currentFilter = status;
 
-    // 更新按钮状态
-    document.querySelectorAll('.filter-buttons .btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    document.getElementById(`filter-${status}`).classList.add('active');
+        // 更新按钮状态
+        document.querySelectorAll('.filter-buttons .btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        document.getElementById(`filter-${status}`).classList.add('active');
 
-    // 筛选表格行
-    const rows = document.querySelectorAll('#codesTableBody tr');
-    rows.forEach(row => {
-        const rowStatus = row.getAttribute('data-status');
-        if (status === 'all' || rowStatus === status) {
-            row.style.display = '';
-        } else {
-            row.style.display = 'none';
-        }
-    });
-}
-
-// 删除兑换码
-async function deleteCode(code) {
-    if (!confirm(`确定要删除兑换码 ${code} 吗?`)) {
-        return;
-    }
-
-    try {
-        const response = await fetch(`/admin/codes/${encodeURIComponent(code)}/delete`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
+        // 筛选表格行
+        const rows = document.querySelectorAll('#codesTableBody tr');
+        rows.forEach(row => {
+            const rowStatus = row.getAttribute('data-status');
+            if (status === 'all' || rowStatus === status) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
             }
         });
-
-        const result = await response.json();
-
-        if (response.ok && result.success) {
-            showToast('删除成功', 'success');
-            // 刷新页面
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
-        } else {
-            showToast(result.error || '删除失败', 'error');
-        }
-    } catch (error) {
-        showToast('网络错误', 'error');
     }
-}
 
-// 复制兑换码
-function copyCode(code) {
-    navigator.clipboard.writeText(code).then(() => {
-        showToast('兑换码已复制到剪贴板', 'success');
-    }).catch(() => {
-        showToast('复制失败', 'error');
-    });
-}
-
-// 导出兑换码
-async function exportCodes() {
-    try {
-        const response = await fetch('/admin/codes/export');
-
-        if (response.ok) {
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `redemption_codes_${new Date().getTime()}.xlsx`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            showToast('导出成功', 'success');
-        } else {
-            showToast('导出失败', 'error');
+    // 删除兑换码
+    async function deleteCode(code) {
+        if (!confirm(`确定要删除兑换码 ${code} 吗?`)) {
+            return;
         }
-    } catch (error) {
-        showToast('网络错误', 'error');
+
+        try {
+            const response = await fetch(`/admin/codes/${encodeURIComponent(code)}/delete`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                showToast('删除成功', 'success');
+                // 刷新页面
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                showToast(result.error || '删除失败', 'error');
+            }
+        } catch (error) {
+            showToast('网络错误', 'error');
+        }
     }
-}
+
+    // 复制兑换码
+    function copyCode(code) {
+        navigator.clipboard.writeText(code).then(() => {
+            showToast('兑换码已复制到剪贴板', 'success');
+        }).catch(() => {
+            showToast('复制失败', 'error');
+        });
+    }
+
+    // 导出兑换码
+    async function exportCodes() {
+        try {
+            const response = await fetch('/admin/codes/export');
+
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `redemption_codes_${new Date().getTime()}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast('导出成功', 'success');
+            } else {
+                showToast('导出失败', 'error');
+            }
+        } catch (error) {
+            showToast('网络错误', 'error');
+        }
+    }
 </script>
 {% endblock %}
