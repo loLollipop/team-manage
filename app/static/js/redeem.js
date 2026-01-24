@@ -167,7 +167,9 @@ async function confirmRedeem(teamId) {
             showSuccessResult(data);
         } else {
             // 兑换失败
-            showErrorResult(data.error || '兑换失败');
+            // 处理 FastAPI 的 HTTPException (detail) 和自定义错误响应 (error)
+            const errorMessage = data.detail || data.error || '兑换失败';
+            showErrorResult(errorMessage);
         }
     } catch (error) {
         showErrorResult('网络错误,请稍后重试');

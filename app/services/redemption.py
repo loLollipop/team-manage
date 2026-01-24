@@ -250,10 +250,11 @@ class RedemptionService:
 
             # 2. 检查状态
             if redemption_code.status != "unused":
+                reason = "兑换码已被使用" if redemption_code.status == "used" else f"兑换码已{redemption_code.status}"
                 return {
                     "success": True,
                     "valid": False,
-                    "reason": f"兑换码已{redemption_code.status}",
+                    "reason": reason,
                     "redemption_code": None,
                     "error": None
                 }
