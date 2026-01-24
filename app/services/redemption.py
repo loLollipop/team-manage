@@ -527,19 +527,40 @@ class RedemptionService:
 
     async def get_all_records(
         self,
-        db_session: AsyncSession
+        db_session: AsyncSession,
+        email: Optional[str] = None,
+        code: Optional[str] = None,
+        team_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        获取所有兑换记录
+        获取所有兑换记录 (支持筛选)
 
         Args:
             db_session: 数据库会话
+            email: 邮箱模糊搜索
+            code: 兑换码模糊搜索
+            team_id: Team ID 筛选
 
         Returns:
             结果字典,包含 success, records, total, error
         """
         try:
-            stmt = select(RedemptionRecord).order_by(RedemptionRecord.redeemed_at.desc())
+            stmt = select(RedemptionRecord)
+            
+            # 添加筛选条件
+            filters = []
+            if email:
+                filters.append(RedemptionRecord.email.ilike(f"%{email}%"))
+            if code:
+                filters.append(RedemptionRecord.code.ilike(f"%{code}%"))
+            if team_id:
+                filters.append(RedemptionRecord.team_id == team_id)
+                
+            if filters:
+                stmt = stmt.where(and_(*filters))
+                
+            stmt = stmt.order_by(RedemptionRecord.redeemed_at.desc())
+            
             result = await db_session.execute(stmt)
             records = result.scalars().all()
 

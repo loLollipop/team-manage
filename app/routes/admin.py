@@ -753,25 +753,18 @@ async def records_page(
             
         logger.info(f"管理员访问使用记录页面 (page={page_int})")
 
-        # 获取所有记录
-        records_result = await redemption_service.get_all_records(db)
+        # 获取记录 (支持邮箱、兑换码、Team ID 筛选)
+        records_result = await redemption_service.get_all_records(
+            db, 
+            email=email, 
+            code=code, 
+            team_id=actual_team_id
+        )
         all_records = records_result.get("records", [])
 
-        # 筛选记录
+        # 仅由于日期范围筛选目前还在内存中处理，如果未来记录数极大可以移至数据库
         filtered_records = []
         for record in all_records:
-            # 邮箱筛选
-            if email and email.lower() not in record["email"].lower():
-                continue
-
-            # 兑换码筛选
-            if code and code.lower() not in record["code"].lower():
-                continue
-
-            # Team ID 筛选
-            if actual_team_id is not None and record["team_id"] != actual_team_id:
-                continue
-
             # 日期范围筛选
             if start_date or end_date:
                 try:
