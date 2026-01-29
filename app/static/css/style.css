@@ -522,12 +522,14 @@ body {
     background-color: rgba(0, 0, 0, 0.4);
     backdrop-filter: blur(4px);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    z-index: 100;
+    z-index: 1000;
     opacity: 0;
     pointer-events: none;
     transition: var(--transition-base);
+    padding: 2rem;
+    overflow-y: auto;
 }
 
 .modal-overlay.show {
@@ -541,9 +543,12 @@ body {
     width: 100%;
     max-width: 500px;
     box-shadow: var(--shadow-lg);
-    overflow: hidden;
     transform: scale(0.95);
     transition: var(--transition-base);
+    margin-top: auto;
+    margin-bottom: auto;
+    position: relative;
+    max-height: none;
 }
 
 .modal-overlay.show .modal {
@@ -556,6 +561,12 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    position: sticky;
+    top: 0;
+    background-color: var(--bg-surface);
+    z-index: 10;
+    border-top-left-radius: var(--radius-lg);
+    border-top-right-radius: var(--radius-lg);
 }
 
 .modal-body {
