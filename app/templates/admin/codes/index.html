@@ -87,6 +87,7 @@
                     <th>使用者邮箱</th>
                     <th>使用时间</th>
                     <th>质保</th>
+                    <th>质保时长</th>
                     <th style="text-align: right;">操作</th>
                 </tr>
             </thead>
@@ -121,6 +122,13 @@
                         <span class="status-badge" style="background: #f3f4f6; color: #6b7280;">否</span>
                         {% endif %}
                     </td>
+                    <td>
+                        {% if code.has_warranty %}
+                        <span style="font-size: 0.875rem;">{{ code.warranty_days }} 天</span>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
                     <td style="text-align: right;">
                         <div class="action-buttons" style="justify-content: flex-end;">
                             <button onclick="copyCode('{{ code.code }}')"
@@ -128,7 +136,7 @@
                                 <i data-lucide="copy" style="width: 14px; height: 14px;"></i>
                             </button>
                             <button
-                                onclick="editCode('{{ code.code }}', {{ 'true' if code.has_warranty else 'false' }})"
+                                onclick="editCode('{{ code.code }}', {{ 'true' if code.has_warranty else 'false' }}, {{ code.warranty_days or 30 }})"
                                 class="btn btn-sm btn-icon btn-minimal btn-info" title="编辑">
                                 <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
                             </button>
@@ -194,12 +202,17 @@
                 </div>
                 <div class="form-group">
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; margin-top: 1rem;">
-                        <input type="checkbox" id="edit-has-warranty" name="hasWarranty"
-                            style="width: auto; margin: 0;">
-                        <span>质保兑换码 (一个月内可重复使用)</span>
+                        <input type="checkbox" id="edit-has-warranty" name="hasWarranty" style="width: auto; margin: 0;"
+                            onchange="toggleWarrantyDays(this, 'edit-warranty-days-group')">
+                        <span>质保兑换码 (可重复使用)</span>
                     </label>
                 </div>
-                <button type="submit" class="btn btn-primary">保存修改</button>
+                <div class="form-group" id="edit-warranty-days-group" style="display: none;">
+                    <label>质保时长 (天) *</label>
+                    <input type="number" id="edit-warranty-days" name="warrantyDays" class="form-control" value="30"
+                        min="1" max="3650">
+                </div>
+                <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">保存修改</button>
             </form>
         </div>
     </div>
@@ -296,10 +309,19 @@
     }
 
     // 编辑兑换码
-    function editCode(code, hasWarranty) {
+    function editCode(code, hasWarranty, warrantyDays) {
         document.getElementById('edit-code').value = code;
         document.getElementById('edit-code-display').value = code;
-        document.getElementById('edit-has-warranty').checked = hasWarranty;
+
+        const hasWarrantyCheckbox = document.getElementById('edit-has-warranty');
+        hasWarrantyCheckbox.checked = hasWarranty;
+
+        const warrantyDaysInput = document.getElementById('edit-warranty-days');
+        warrantyDaysInput.value = warrantyDays || 30;
+
+        // 触发显示/隐藏
+        toggleWarrantyDays(hasWarrantyCheckbox, 'edit-warranty-days-group');
+
         showModal('editCodeModal');
     }
 
@@ -307,6 +329,7 @@
         event.preventDefault();
         const code = document.getElementById('edit-code').value;
         const has_warranty = document.getElementById('edit-has-warranty').checked;
+        const warranty_days = parseInt(document.getElementById('edit-warranty-days').value) || 30;
 
         try {
             const response = await fetch(`/admin/codes/${encodeURIComponent(code)}/update`, {
@@ -314,7 +337,10 @@
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ has_warranty })
+                body: JSON.stringify({
+                    has_warranty,
+                    warranty_days: has_warranty ? warranty_days : null
+                })
             });
 
             const result = await response.json();

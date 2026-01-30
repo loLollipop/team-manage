@@ -56,6 +56,7 @@ class CodeGenerateRequest(BaseModel):
     count: Optional[int] = Field(None, description="生成数量 (批量生成)")
     expires_days: Optional[int] = Field(None, description="有效期天数")
     has_warranty: bool = Field(False, description="是否为质保兑换码")
+    warranty_days: int = Field(30, description="质保天数")
 
 
 class TeamUpdateRequest(BaseModel):
@@ -73,6 +74,7 @@ class TeamUpdateRequest(BaseModel):
 class CodeUpdateRequest(BaseModel):
     """兑换码更新请求"""
     has_warranty: bool = Field(..., description="是否为质保兑换码")
+    warranty_days: Optional[int] = Field(None, description="质保天数")
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -210,18 +212,18 @@ async def update_team(
 ):
     """更新 Team 信息"""
     try:
-            result = await team_service.update_team(
-                team_id=team_id,
-                db_session=db,
-                email=update_data.email,
-                account_id=update_data.account_id,
-                access_token=update_data.access_token,
-                refresh_token=update_data.refresh_token,
-                session_token=update_data.session_token,
-                client_id=update_data.client_id,
-                max_members=update_data.max_members,
-                status=update_data.status
-            )
+        result = await team_service.update_team(
+            team_id=team_id,
+            db_session=db,
+            email=update_data.email,
+            account_id=update_data.account_id,
+            access_token=update_data.access_token,
+            refresh_token=update_data.refresh_token,
+            session_token=update_data.session_token,
+            client_id=update_data.client_id,
+            max_members=update_data.max_members,
+            status=update_data.status
+        )
         if not result["success"]:
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -612,7 +614,8 @@ async def generate_codes(
                 db_session=db,
                 code=generate_data.code,
                 expires_days=generate_data.expires_days,
-                has_warranty=generate_data.has_warranty
+                has_warranty=generate_data.has_warranty,
+                warranty_days=generate_data.warranty_days
             )
 
             if not result["success"]:
@@ -638,7 +641,8 @@ async def generate_codes(
                 db_session=db,
                 count=generate_data.count,
                 expires_days=generate_data.expires_days,
-                has_warranty=generate_data.has_warranty
+                has_warranty=generate_data.has_warranty,
+                warranty_days=generate_data.warranty_days
             )
 
             if not result["success"]:
@@ -769,9 +773,10 @@ async def export_codes(
         worksheet.set_column('D:D', 18)  # 过期时间
         worksheet.set_column('E:E', 30)  # 使用者邮箱
         worksheet.set_column('F:F', 18)  # 使用时间
+        worksheet.set_column('G:G', 12)  # 质保时长
 
         # 写入表头
-        headers = ['兑换码', '状态', '创建时间', '过期时间', '使用者邮箱', '使用时间']
+        headers = ['兑换码', '状态', '创建时间', '过期时间', '使用者邮箱', '使用时间', '质保时长(天)']
         for col, header in enumerate(headers):
             worksheet.write(0, col, header, header_format)
 
@@ -789,6 +794,7 @@ async def export_codes(
             worksheet.write(row, 3, code.get('expires_at', '永久有效'), cell_format)
             worksheet.write(row, 4, code.get('used_by_email', '-'), cell_format)
             worksheet.write(row, 5, code.get('used_at', '-'), cell_format)
+            worksheet.write(row, 6, code.get('warranty_days', '-') if code.get('has_warranty') else '-', cell_format)
 
         # 关闭workbook
         workbook.close()
@@ -829,7 +835,8 @@ async def update_code(
         result = await redemption_service.update_code(
             code=code,
             db_session=db,
-            has_warranty=update_data.has_warranty
+            has_warranty=update_data.has_warranty,
+            warranty_days=update_data.warranty_days
         )
         if not result["success"]:
             return JSONResponse(

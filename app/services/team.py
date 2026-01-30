@@ -362,24 +362,19 @@ class TeamService:
                 "error": f"导入失败: {str(e)}"
             }
 
-        except Exception as e:
-            await db_session.rollback()
-            logger.error(f"Team 导入失败: {e}")
-            return {
-                "success": False,
-                "team_id": None,
-                "message": None,
-                "error": f"导入失败: {str(e)}"
-            }
 
     async def update_team(
         self,
         team_id: int,
         db_session: AsyncSession,
         access_token: Optional[str] = None,
+        refresh_token: Optional[str] = None,
+        session_token: Optional[str] = None,
+        client_id: Optional[str] = None,
         email: Optional[str] = None,
         account_id: Optional[str] = None,
-        max_members: Optional[int] = None
+        max_members: Optional[int] = None,
+        status: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         更新 Team 信息

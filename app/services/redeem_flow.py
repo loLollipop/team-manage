@@ -222,7 +222,8 @@ class RedeemFlowService:
                     redemption_code.status = "warranty_active"
                     # 首次使用时设置质保到期时间
                     if is_first_use:
-                        redemption_code.warranty_expires_at = get_now() + timedelta(days=30)
+                        warranty_days = redemption_code.warranty_days or 30
+                        redemption_code.warranty_expires_at = get_now() + timedelta(days=warranty_days)
                 else:
                     # 普通码标记为已使用
                     redemption_code.status = "used"

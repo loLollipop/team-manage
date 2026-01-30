@@ -52,7 +52,8 @@ class RedemptionService:
         db_session: AsyncSession,
         code: Optional[str] = None,
         expires_days: Optional[int] = None,
-        has_warranty: bool = False
+        has_warranty: bool = False,
+        warranty_days: int = 30
     ) -> Dict[str, Any]:
         """
         生成单个兑换码
@@ -112,7 +113,8 @@ class RedemptionService:
                 code=code,
                 status="unused",
                 expires_at=expires_at,
-                has_warranty=has_warranty
+                has_warranty=has_warranty,
+                warranty_days=warranty_days
             )
 
             db_session.add(redemption_code)
@@ -142,7 +144,8 @@ class RedemptionService:
         db_session: AsyncSession,
         count: int,
         expires_days: Optional[int] = None,
-        has_warranty: bool = False
+        has_warranty: bool = False,
+        warranty_days: int = 30
     ) -> Dict[str, Any]:
         """
         批量生成兑换码
@@ -198,7 +201,8 @@ class RedemptionService:
                     code=code,
                     status="unused",
                     expires_at=expires_at,
-                    has_warranty=has_warranty
+                    has_warranty=has_warranty,
+                    warranty_days=warranty_days
                 )
                 db_session.add(redemption_code)
 
@@ -448,6 +452,7 @@ class RedemptionService:
                     "used_team_id": code.used_team_id,
                     "used_at": code.used_at.isoformat() if code.used_at else None,
                     "has_warranty": code.has_warranty,
+                    "warranty_days": code.warranty_days,
                     "warranty_expires_at": code.warranty_expires_at.isoformat() if code.warranty_expires_at else None
                 })
 
@@ -693,7 +698,8 @@ class RedemptionService:
         self,
         code: str,
         db_session: AsyncSession,
-        has_warranty: Optional[bool] = None
+        has_warranty: Optional[bool] = None,
+        warranty_days: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         更新兑换码信息
@@ -722,6 +728,9 @@ class RedemptionService:
             # 更新质保状态
             if has_warranty is not None:
                 redemption_code.has_warranty = has_warranty
+            
+            if warranty_days is not None:
+                redemption_code.warranty_days = warranty_days
 
             await db_session.commit()
 
