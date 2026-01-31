@@ -200,6 +200,10 @@ body {
     text-align: center;
 }
 
+.result-error {
+    text-align: center;
+}
+
 .result-icon {
     font-size: 3rem;
     margin-bottom: 1rem;

@@ -150,6 +150,11 @@ function autoSelectTeam() {
 
 // 确认兑换
 async function confirmRedeem(teamId) {
+    console.log('Starting redemption process, teamId:', teamId);
+
+    // Safety check: Ensure confirmRedeem doesn't run if already running? 
+    // The button disable logic handles that.
+
     try {
         const response = await fetch('/redeem/confirm', {
             method: 'POST',
@@ -163,19 +168,46 @@ async function confirmRedeem(teamId) {
             })
         });
 
-        const data = await response.json();
+        console.log('Response status:', response.status);
+
+        let data;
+        const text = await response.text();
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            console.error('Failed to parse response JSON:', text);
+            throw new Error('服务器响应格式错误');
+        }
 
         if (response.ok && data.success) {
             // 兑换成功
+            console.log('Redemption success');
             showSuccessResult(data);
         } else {
             // 兑换失败
-            // 处理 FastAPI 的 HTTPException (detail) 和自定义错误响应 (error)
-            const errorMessage = data.detail || data.error || '兑换失败';
+            console.warn('Redemption failed:', data);
+
+            // Extract error message safely
+            let errorMessage = '兑换失败';
+
+            if (data.detail) {
+                if (typeof data.detail === 'string') {
+                    errorMessage = data.detail;
+                } else if (Array.isArray(data.detail)) {
+                    // Handle FastAPI validation errors (array of objects)
+                    errorMessage = data.detail.map(err => err.msg || JSON.stringify(err)).join('; ');
+                } else {
+                    errorMessage = JSON.stringify(data.detail);
+                }
+            } else if (data.error) {
+                errorMessage = data.error;
+            }
+
             showErrorResult(errorMessage);
         }
     } catch (error) {
-        showErrorResult('网络错误,请稍后重试');
+        console.error('Network or logic error:', error);
+        showErrorResult(error.message || '网络错误,请稍后重试');
     }
 }
 
