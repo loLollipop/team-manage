@@ -448,6 +448,17 @@ body {
     color: var(--success);
 }
 
+.role-hint {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-sm);
+    background: var(--warning-soft);
+    color: var(--warning);
+    border: 1px solid var(--warning-soft);
+    margin-left: 0.5rem;
+    font-weight: 600;
+}
+
 .status-warning {
     background: var(--warning-soft);
     color: var(--warning);

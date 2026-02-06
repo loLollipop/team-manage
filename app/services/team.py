@@ -395,6 +395,7 @@ class TeamService:
                     current_members=current_members,
                     max_members=max_members,
                     status=status,
+                    account_role=selected_account.get("account_user_role"),
                     last_sync=get_now()
                 )
 
@@ -588,7 +589,8 @@ class TeamService:
                     "session_token": encryption_service.decrypt_token(team.session_token_encrypted) if team.session_token_encrypted else "",
                     "client_id": team.client_id or "",
                     "team_name": team.team_name,
-                    "status": team.status
+                    "status": team.status,
+                    "account_role": team.account_role
                 }
             }
         except Exception as e:
@@ -855,12 +857,13 @@ class TeamService:
                 status = "full"
             elif expires_at and expires_at < datetime.now():
                 status = "expired"
-
+            
             # 8. 更新 Team 信息
             team.account_id = current_account["account_id"]
             team.team_name = current_account["name"]
             team.plan_type = current_account["plan_type"]
             team.subscription_plan = current_account["subscription_plan"]
+            team.account_role = current_account.get("account_user_role")
             team.expires_at = expires_at
             team.current_members = current_members
             team.status = status

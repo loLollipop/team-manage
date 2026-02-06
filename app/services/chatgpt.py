@@ -496,6 +496,7 @@ class ChatGPTService:
                     "account_id": account_id,
                     "name": account.get("name", ""),
                     "plan_type": account.get("plan_type", ""),
+                    "account_user_role": account.get("account_user_role", ""),
                     "subscription_plan": entitlement.get("subscription_plan", ""),
                     "expires_at": entitlement.get("expires_at", ""),
                     "has_active_subscription": entitlement.get("has_active_subscription", False)

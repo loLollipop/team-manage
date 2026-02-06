@@ -82,7 +82,12 @@
                 {% for team in teams %}
                 <tr>
                     <td><span class="text-muted">{{ team.id }}</span></td>
-                    <td>{{ team.email }}</td>
+                    <td>
+                        {{ team.email }}
+                        {% if team.account_role and team.account_role != 'account-owner' %}
+                        <span class="role-hint" title="账号角色: {{ team.account_role }}">已降级</span>
+                        {% endif %}
+                    </td>
                     <td><span class="text-muted small">{{ team.account_id or '-' }}</span></td>
                     <td>{{ team.team_name or '-' }}</td>
                     <td>
@@ -208,6 +213,10 @@
                 <div class="form-group">
                     <label>Team 名称</label>
                     <input type="text" id="edit-team-name" name="teamName" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>账号角色</label>
+                    <input type="text" id="edit-team-role" class="form-control" readonly title="检测到的账号角色">
                 </div>
                 <div class="form-group">
                     <label>最大成员数 <span class="required">*</span></label>
@@ -336,6 +345,7 @@
                 document.getElementById('edit-team-max-members').value = team.max_members || 6;
                 document.getElementById('edit-team-name').value = team.team_name || '';
                 document.getElementById('edit-team-status').value = team.status || 'active';
+                document.getElementById('edit-team-role').value = team.account_role || '未知';
                 showModal('editTeamModal');
             } else {
                 showToast(data.error || '获取信息失败', 'error');
