@@ -569,9 +569,6 @@ class TeamService:
 
             await db_session.commit()
 
-            # 6. 如果更新了 AT 或 account_id，触发一次同步以确保状态正确
-            if access_token or account_id:
-                await self.sync_team_info(team_id, db_session)
 
             logger.info(f"Team {team_id} 信息更新成功")
             return {"success": True, "message": "Team 信息更新成功"}
