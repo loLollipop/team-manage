@@ -539,8 +539,8 @@ body {
     /* Take up remaining space */
     min-width: 0;
     /* Allow shrinking */
-    justify-content: flex-end;
-    /* Align pages to the right */
+    justify-content: flex-start;
+    /* Align pages to the start so scrolling begins from page 1 */
 }
 
 /* Hide scrollbar but keep functionality for cleaner look on some browsers */
@@ -1294,9 +1294,26 @@ body {
     }
 
     .pagination-controls {
-        justify-content: flex-end;
+        justify-content: flex-start;
         padding: 0.5rem 0;
-        /* Scrollable area will be the space between per-page and right edge */
+        gap: 0.15rem;
+    }
+
+    .page-number {
+        width: 28px;
+        height: 28px;
+        font-size: 0.75rem;
+    }
+
+    .pagination-controls .btn-sm {
+        min-height: 28px;
+        width: 28px;
+        padding: 0;
+    }
+
+    .pagination-controls .btn-sm i {
+        width: 12px !important;
+        height: 12px !important;
     }
 
     .per-page-selector {
