@@ -89,19 +89,27 @@ class TeamService:
                 team.current_members = team.max_members
             await db_session.commit()
             return True
+
+        # 3. 判定是否为 Token 过期 (需刷新)
+        is_token_expired = error_code == "token_expired" or "token_expired" in error_msg or "token is expired" in error_msg
+        
+        # 4. 处理其他所有非致命错误 (累加错误次数)
+        # 只要走到这里，说明不是封号也不是满员，统统记录错误
+        logger.warning(f"Team {team.id} ({team.email}) 请求出错 (code={error_code}, msg={error_msg})")
+        
+        team.error_count = (team.error_count or 0) + 1
+        if team.error_count >= 3:
+            logger.error(f"Team {team.id} 连续错误 {team.error_count} 次，标记为 error")
+            team.status = "error"
+        
+        # 如果是 Token 过期，尝试立即刷新一次（为下次重试做准备）
+        if is_token_expired:
+            logger.info(f"Team {team.id} Token 过期，尝试后台刷新...")
+            # 注意：此处不等待刷新结果，仅作为修复尝试
+            await self.ensure_access_token(team, db_session)
             
-        # 3. 处理常规刷新失败 (invalid_grant)
-        # 如果是 invalid_grant, 且上面没判定为封号, 则视为常规刷新异常（可能只是 RT/ST 过期或手动登出）
-        if error_code == "invalid_grant" or "invalid_grant" in error_msg:
-            logger.warning(f"检测到刷新 Token 失败 (invalid_grant), 累加 Team {team.id} ({team.email}) 错误次数")
-            team.error_count = (team.error_count or 0) + 1
-            if team.error_count >= 3:
-                logger.error(f"Team {team.id} 连续错误 {team.error_count} 次，标记为 error")
-                team.status = "error"
-            await db_session.commit()
-            return True
-            
-        return False
+        await db_session.commit()
+        return True
         
     async def _reset_error_status(self, team: Team, db_session: AsyncSession) -> None:
         """

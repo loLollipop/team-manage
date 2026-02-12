@@ -295,12 +295,27 @@ class RedeemFlowService:
                     # 事务 commit
                 
                 # --- 阶段 2: 网络请求 ---
-                try:
-                    access_token = encryption_service.decrypt_token(final_access_token_encrypted)
-                except Exception as e:
-                    logger.error(f"解密 Token 失败: {e}")
+                # 获取该 Team 的最新数据以确保 Token 也是最新的 (可能被其他进程同步过)
+                stmt = select(Team).where(Team.id == team_id_final)
+                res = await db_session.execute(stmt)
+                target_team = res.scalar_one_or_none()
+                
+                if not target_team:
                     await self._rollback_redemption(db_session, code, team_id_final)
-                    return {"success": False, "error": f"系统解密失败: {str(e)}"}
+                    if attempt < max_retries - 1:
+                        current_target_team_id = None
+                        continue
+                    return {"success": False, "error": "所选 Team 已失效"}
+
+                # 确保 Access Token 有效 (过期则尝试使用 RT/ST 刷新)
+                access_token = await self.team_service.ensure_access_token(target_team, db_session)
+                if not access_token:
+                    logger.warning(f"无法获取有效的 Access Token (Team {team_id_final})")
+                    await self._rollback_redemption(db_session, code, team_id_final)
+                    if attempt < max_retries - 1:
+                        current_target_team_id = None
+                        continue
+                    return {"success": False, "error": "Team 账号 Token 已失效且无法刷新"}
 
                 invite_result = await self.chatgpt_service.send_invite(
                     access_token, final_team_account_id, email, db_session
@@ -340,24 +355,28 @@ class RedeemFlowService:
                     
                     error_msg = invite_result.get("error", "未知错误")
                     
-                    # 致命错误处理
+                    # 重新查询 Team 以获取最新状态（尤其是错误计数和状态）
                     stmt = select(Team).where(Team.id == team_id_final)
                     res = await db_session.execute(stmt)
                     target_team = res.scalar_one_or_none()
                     
-                    is_fatal = False
-                    if target_team and await self.team_service._handle_api_error(invite_result, target_team, db_session):
-                        is_fatal = True
-                        if invite_result.get("error_code") == "account_deactivated":
+                    if target_team:
+                        # 处理 API 错误（标记封禁、满员、计数错误，如果是 token_expired 则在后台尝试刷新）
+                        await self.team_service._handle_api_error(invite_result, target_team, db_session)
+                        
+                        # 根据最新状态调整给用户的错误信息
+                        if target_team.status == "banned":
                             error_msg = "Team 账号被封禁"
-                        elif invite_result.get("error_code") == "token_invalidated":
-                            error_msg = "Team 账号已封禁/失效"
                         elif target_team.status == "full":
                             error_msg = "Team 席位已满"
+                        elif target_team.status == "error":
+                            error_msg = "Team 账号连续出错，已标记异常"
                     
                     last_error = error_msg
-                    if is_fatal and attempt < max_retries - 1:
-                        logger.info(f"致命错误，尝试更换 Team 重试...")
+                    
+                    # 只要还有重试机会，就尝试更换 Team (符合用户要求：报错就尝试下一个)
+                    if attempt < max_retries - 1:
+                        logger.info(f"加入失败，尝试更换 Team 重试... (错误: {error_msg})")
                         current_target_team_id = None
                         continue
                     else:
