@@ -1183,8 +1183,19 @@ body {
 
     .header-actions {
         width: 100%;
-        overflow-x: auto;
+        overflow: visible;
+        /* Prevent clipping dropdowns */
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
         padding-bottom: 0.5rem;
+    }
+
+    .dropdown-menu {
+        right: auto !important;
+        left: 0 !important;
+        width: 260px;
+        max-width: calc(100vw - 2rem);
     }
 
     .stats-container {
