@@ -99,8 +99,13 @@ class TeamService:
         
         team.error_count = (team.error_count or 0) + 1
         if team.error_count >= 3:
-            logger.error(f"Team {team.id} 连续错误 {team.error_count} 次，标记为 error")
-            team.status = "error"
+            # 如果错误次数达标且是 Token 问题，标记为 expired 提高可读性
+            if is_token_expired:
+                logger.error(f"Team {team.id} 连续 Token 错误，标记为 expired")
+                team.status = "expired"
+            else:
+                logger.error(f"Team {team.id} 连续错误 {team.error_count} 次，标记为 error")
+                team.status = "error"
         
         # 如果是 Token 过期，尝试立即刷新一次（为下次重试做准备）
         if is_token_expired:
@@ -185,12 +190,9 @@ class TeamService:
                     return None
         
         if team.status != "banned":
+            logger.error(f"Team {team.id} Token 已过期且无法刷新，标记为 expired")
+            team.status = "expired"
             team.error_count = (team.error_count or 0) + 1
-            if team.error_count >= 3:
-                logger.error(f"Team {team.id} Token 过期且无法刷新, 连续错误 {team.error_count} 次, 更新状态为 error")
-                team.status = "error"
-            else:
-                logger.warning(f"Team {team.id} Token 过期且无法刷新, 错误次数: {team.error_count}")
         await db_session.commit()
         return None
 
@@ -760,31 +762,56 @@ class TeamService:
             )
 
             if not account_result["success"]:
-                # 检查是否封号或 Token 失效
-                if await self._handle_api_error(account_result, team, db_session):
+                # 如果是 Token 过期，尝试在此处自动重试一次
+                error_msg_raw = str(account_result.get("error", "")).lower()
+                is_token_expired = account_result.get("error_code") == "token_expired" or "token_expired" in error_msg_raw or "token is expired" in error_msg_raw
+
+                # 调用通用的错误处理逻辑 (包含标记封禁、累计错误次数、后台刷新等)
+                await self._handle_api_error(account_result, team, db_session)
+
+                if is_token_expired:
+                    logger.info(f"Team {team.id} 同步时发现 Token 过期，尝试立即刷新并重试...")
+                    new_token = await self.ensure_access_token(team, db_session)
+                    if new_token:
+                        # 使用新 Token 再次尝试
+                        account_result = await self.chatgpt_service.get_account_info(new_token, db_session)
+                        if account_result["success"]:
+                            logger.info(f"Team {team.id} 自动刷新 Token 后重试同步成功")
+                        else:
+                            # 刷新成功但请求依然失败，标记为过期/异常
+                            logger.error(f"Team {team.id} Token 刷新成功但获取账户信息仍失败，标记为 expired")
+                            team.status = "expired"
+                            await db_session.commit()
+                            return {
+                                "success": False,
+                                "message": None,
+                                "error": f"Token 刷新成功但获取账户信息仍失败: {account_result.get('error', '未知错误')}"
+                            }
+                    else:
+                        # 刷新失败，标记为过期
+                        logger.error(f"Team {team.id} Token 刷新失败，标记为 expired")
+                        team.status = "expired"
+                        await db_session.commit()
+                        return {
+                            "success": False,
+                            "message": None,
+                            "error": "Token 已过期且通过 Session/Refresh Token 刷新失败"
+                        }
+                else:
+                    # 其他非 Token 过期导致的错误
                     error_msg = account_result.get("error", "未知错误")
                     if account_result.get("error_code") == "account_deactivated":
                         error_msg = "账号已封禁 (account_deactivated)"
                     elif account_result.get("error_code") == "token_invalidated":
                         error_msg = "账号已封禁/失效 (token_invalidated)"
+                    elif team.status == "error":
+                        error_msg = "账号连续多次同步失败，已标记异常"
                         
                     return {
                         "success": False,
                         "message": None,
                         "error": error_msg
                     }
-
-                # 累加错误次数
-                team.error_count = (team.error_count or 0) + 1
-                if team.error_count >= 3:
-                    logger.error(f"Team {team.id} 获取账户信息连续失败 {team.error_count} 次，更新状态为 error")
-                    team.status = "error"
-                await db_session.commit()
-                return {
-                    "success": False,
-                    "message": None,
-                    "error": f"获取账户信息失败: {account_result['error']} (错误次数: {team.error_count})"
-                }
 
             # 4. 查找当前使用的 account
             team_accounts = account_result["accounts"]
