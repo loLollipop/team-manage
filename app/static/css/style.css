@@ -172,6 +172,27 @@ body {
     min-height: calc(100vh - 64px);
 }
 
+.footer {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    border-top: 1px solid var(--border-base);
+    background-color: var(--bg-surface);
+}
+
+.footer-link {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+    transition: var(--transition-fast);
+}
+
+.footer-link:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+}
+
 /* Components */
 .content-section {
     background-color: var(--bg-surface);
