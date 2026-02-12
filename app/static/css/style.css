@@ -519,11 +519,12 @@ body {
 .per-page-selector {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.875rem;
+    gap: 0.35rem;
+    /* Reduced gap */
+    font-size: 0.8125rem;
+    /* Smaller font */
     color: var(--text-muted);
     flex-shrink: 0;
-    /* Prevent squashing */
 }
 
 .pagination-controls {
@@ -592,21 +593,17 @@ body {
     padding: 0 0.5rem;
 }
 
-.per-page-selector {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.875rem;
-    color: var(--text-muted);
-}
+
 
 .per-page-select {
-    padding: 0.25rem 0.5rem;
+    padding: 0.15rem 0.35rem;
+    /* More compact padding */
     border: 1px solid var(--border-base);
     border-radius: var(--radius-sm);
     background-color: var(--bg-surface);
     color: var(--text-main);
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
+    /* Match selector font size */
     outline: none;
     cursor: pointer;
     transition: var(--transition-fast);
