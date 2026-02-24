@@ -276,9 +276,10 @@ class TeamService:
                     "error": "缺少有效的 Access Token，且无法通过 Session/Refresh Token 刷新"
                 }
 
-            # 2. 如果没有提供邮箱,从 Token 中提取
+            # 2. 如果没有提供邮箱,从 Token 中提取; 如果提供了,则校验是否匹配 (安全兜底)
+            token_email = self.jwt_parser.extract_email(access_token)
             if not email:
-                email = self.jwt_parser.extract_email(access_token)
+                email = token_email
                 if not email:
                     return {
                         "success": False,
@@ -287,6 +288,15 @@ class TeamService:
                         "message": None,
                         "error": "无法从 Token 中提取邮箱,请手动提供邮箱"
                     }
+            elif token_email and token_email.lower() != email.lower():
+                logger.error(f"导入时 Token 邮箱不匹配: 预期 {email}, 实际 {token_email}")
+                return {
+                    "success": False,
+                    "team_id": None,
+                    "email": email,
+                    "message": None,
+                    "error": f"Token 对应的账号身份 ({token_email}) 与提供的邮箱 ({email}) 不符，导入已中止。请检查是否有其他账号正在登录导致 Session 污染。"
+                }
 
             # 2. 尝试从 API 获取账户信息
             accounts_to_import = []
@@ -768,6 +778,16 @@ class TeamService:
                     "error": "Token 已过期且无法刷新"
                 }
 
+            # 2.5 校验 Token 所属用户是否正确 (安全兜底)
+            token_email = self.jwt_parser.extract_email(access_token)
+            if token_email and team.email and token_email.lower() != team.email.lower():
+                logger.error(f"Team {team_id} Token 邮箱不匹配: 预期 {team.email}, 实际 {token_email}")
+                return {
+                    "success": False,
+                    "message": None,
+                    "error": f"刷新出的账号身份 ({token_email}) 与原账号 ({team.email}) 不符，刷新已中止以防止数据污染。这可能是由于浏览器 Session 污染导致，建议清理 ST 后重新导入。"
+                }
+
             # 3. 获取账户信息
             account_result = await self.chatgpt_service.get_account_info(
                 access_token,
@@ -786,6 +806,16 @@ class TeamService:
                     logger.info(f"Team {team.id} 同步时发现 Token 过期，尝试立即刷新并重试...")
                     new_token = await self.ensure_access_token(team, db_session, force_refresh=True)
                     if new_token:
+                        # 2.6 重试后的 AT 也需要校验身份 (安全兜底)
+                        new_token_email = self.jwt_parser.extract_email(new_token)
+                        if new_token_email and team.email and new_token_email.lower() != team.email.lower():
+                            logger.error(f"Team {team_id} 重试刷新 Token 邮箱不匹配: 预期 {team.email}, 实际 {new_token_email}")
+                            return {
+                                "success": False,
+                                "message": None,
+                                "error": f"刷新出的账号身份 ({new_token_email}) 与原账号 ({team.email}) 不符。同步已中止。"
+                            }
+
                         # 使用新 Token 再次尝试
                         account_result = await self.chatgpt_service.get_account_info(new_token, db_session)
                         if account_result["success"]:
