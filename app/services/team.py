@@ -666,13 +666,28 @@ class TeamService:
                 }
                 return
 
-            # 1.1 按 AT 去重 (防止重复处理同一个 Token 下的多个账号或重复行)
-            seen_tokens = set()
+            # 1.1 按邮箱去重 (以前是按 AT，现在改为按邮箱，防止重复处理同一个账号)
+            seen_emails = set()
             unique_data = []
             for item in parsed_data:
                 token = item.get("token")
-                if token and token not in seen_tokens:
-                    seen_tokens.add(token)
+                email = item.get("email")
+                
+                # 如果没有显式邮箱，尝试从 Token 中提取
+                if not email and token:
+                    try:
+                        extracted = self.jwt_parser.extract_email(token)
+                        if extracted:
+                            email = extracted
+                            item["email"] = email
+                    except:
+                        pass
+                
+                # 确定排重键：优先使用邮箱(不区分大小写)，如果没有则退而求其次使用 Token
+                dedup_key = email.lower() if email else token
+                
+                if dedup_key and dedup_key not in seen_emails:
+                    seen_emails.add(dedup_key)
                     unique_data.append(item)
             
             parsed_data = unique_data
