@@ -6,6 +6,7 @@ from typing import Optional, Dict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Setting
+from app.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -180,6 +181,76 @@ class SettingsService:
         }
 
         return await self.update_settings(session, settings)
+
+
+    async def get_token_auto_refresh_config(self, session: AsyncSession) -> Dict[str, int]:
+        """
+        获取 Token 自动刷新配置
+
+        Returns:
+            Token 自动刷新配置
+        """
+        enabled_raw = await self.get_setting(
+            session,
+            "token_auto_refresh_enabled",
+            str(settings.token_auto_refresh_enabled).lower()
+        )
+        interval_raw = await self.get_setting(
+            session,
+            "token_auto_refresh_interval_seconds",
+            str(settings.token_auto_refresh_interval_seconds)
+        )
+        lead_raw = await self.get_setting(
+            session,
+            "token_refresh_lead_seconds",
+            str(settings.token_refresh_lead_seconds)
+        )
+
+        try:
+            interval = max(5, int(interval_raw))
+        except Exception:
+            interval = max(5, int(settings.token_auto_refresh_interval_seconds))
+
+        try:
+            lead_seconds = max(0, int(lead_raw))
+        except Exception:
+            lead_seconds = max(0, int(settings.token_refresh_lead_seconds))
+
+        return {
+            "enabled": str(enabled_raw).lower() == "true",
+            "interval_seconds": interval,
+            "lead_seconds": lead_seconds
+        }
+
+    async def update_token_auto_refresh_config(
+        self,
+        session: AsyncSession,
+        enabled: bool,
+        interval_seconds: int,
+        lead_seconds: int
+    ) -> bool:
+        """
+        更新 Token 自动刷新配置
+        """
+        normalized_interval = max(5, int(interval_seconds))
+        normalized_lead = max(0, int(lead_seconds))
+
+        updated = await self.update_settings(
+            session,
+            {
+                "token_auto_refresh_enabled": str(enabled).lower(),
+                "token_auto_refresh_interval_seconds": str(normalized_interval),
+                "token_refresh_lead_seconds": str(normalized_lead)
+            }
+        )
+        if not updated:
+            return False
+
+        # 同步更新运行时配置（无需重启）
+        settings.token_auto_refresh_enabled = enabled
+        settings.token_auto_refresh_interval_seconds = normalized_interval
+        settings.token_refresh_lead_seconds = normalized_lead
+        return True
 
     async def get_log_level(self, session: AsyncSession) -> str:
         """
