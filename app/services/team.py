@@ -29,12 +29,18 @@ class TeamService:
         self.token_parser = TokenParser()
         self.jwt_parser = JWTParser()
 
-    async def _handle_api_error(self, result: Dict[str, Any], team: Team, db_session: AsyncSession) -> bool:
+    async def _handle_api_error(
+        self,
+        result: Dict[str, Any],
+        team: Team,
+        db_session: AsyncSession,
+        stop_on_nonfatal: bool = True
+    ) -> bool:
         """
         检查结果是否表示账号被封禁、Token 失效或 Team 已满,如果是则更新状态
         
         Returns:
-            bool: 是否已处理致命错误
+            bool: 是否应中断当前流程
         """
         error_code = result.get("error_code")
         error_msg = str(result.get("error", "")).lower()
@@ -107,14 +113,15 @@ class TeamService:
                 logger.error(f"Team {team.id} 连续错误 {team.error_count} 次，标记为 error")
                 team.status = "error"
         
-        # 如果是 Token 过期，尝试立即刷新一次（为下次重试做准备）
-        if is_token_expired:
+        # 仅在普通 API 请求流程中，Token 过期时尝试后台刷新一次
+        # 刷新流程内部失败时不再递归触发刷新，避免死循环
+        if is_token_expired and stop_on_nonfatal:
             logger.info(f"Team {team.id} Token 过期，尝试后台刷新...")
             # 注意：此处不等待刷新结果，仅作为修复尝试
             await self.ensure_access_token(team, db_session)
             
         await db_session.commit()
-        return True
+        return stop_on_nonfatal
         
     async def _reset_error_status(self, team: Team, db_session: AsyncSession) -> None:
         """
@@ -176,7 +183,7 @@ class TeamService:
                 return new_at
             else:
                 # 检查是否为致命错误 (如 token_invalidated)
-                if await self._handle_api_error(refresh_result, team, db_session):
+                if await self._handle_api_error(refresh_result, team, db_session, stop_on_nonfatal=False):
                     return None
 
         # 4. 尝试使用 refresh_token 刷新
@@ -197,7 +204,7 @@ class TeamService:
                 return new_at
             else:
                 # 检查是否为致命错误 (如 account_deactivated)
-                if await self._handle_api_error(refresh_result, team, db_session):
+                if await self._handle_api_error(refresh_result, team, db_session, stop_on_nonfatal=False):
                     return None
         
         if team.status != "banned":
@@ -837,6 +844,7 @@ class TeamService:
                         account_result = await self.chatgpt_service.get_account_info(new_token, db_session, identifier=team.email)
                         if account_result["success"]:
                             logger.info(f"Team {team.id} 自动刷新 Token 后重试同步成功")
+                            access_token = new_token
                         else:
                             # 刷新成功但请求依然失败，标记为过期/异常
                             logger.error(f"Team {team.id} Token 刷新成功但获取账户信息仍失败，标记为 expired")
