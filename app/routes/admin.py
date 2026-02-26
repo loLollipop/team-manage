@@ -1124,6 +1124,7 @@ async def settings_page(
         # 获取当前配置
         proxy_config = await settings_service.get_proxy_config(db)
         log_level = await settings_service.get_log_level(db)
+        token_refresh_config = await settings_service.get_token_auto_refresh_config(db)
 
         return templates.TemplateResponse(
             "admin/settings/index.html",
@@ -1133,7 +1134,10 @@ async def settings_page(
                 "active_page": "settings",
                 "proxy_enabled": proxy_config["enabled"],
                 "proxy": proxy_config["proxy"],
-                "log_level": log_level
+                "log_level": log_level,
+                "token_auto_refresh_enabled": token_refresh_config["enabled"],
+                "token_auto_refresh_interval_seconds": token_refresh_config["interval_seconds"],
+                "token_refresh_lead_seconds": token_refresh_config["lead_seconds"]
             }
         )
 
@@ -1154,6 +1158,13 @@ class ProxyConfigRequest(BaseModel):
 class LogLevelRequest(BaseModel):
     """日志级别请求"""
     level: str = Field(..., description="日志级别")
+
+
+class TokenAutoRefreshConfigRequest(BaseModel):
+    """Token 自动刷新配置请求"""
+    enabled: bool = Field(..., description="是否启用自动刷新")
+    interval_seconds: int = Field(..., ge=5, description="检查间隔（秒，最小5）")
+    lead_seconds: int = Field(..., ge=0, description="提前刷新窗口（秒）")
 
 
 @router.post("/settings/proxy")
@@ -1258,3 +1269,40 @@ async def update_log_level(
         )
 
 
+
+@router.post("/settings/token-refresh")
+async def update_token_refresh_config(
+    config_data: TokenAutoRefreshConfigRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """更新 Token 自动刷新配置"""
+    try:
+        from app.services.settings import settings_service
+
+        logger.info(
+            f"管理员更新 Token 自动刷新配置: enabled={config_data.enabled}, "
+            f"interval={config_data.interval_seconds}s, lead={config_data.lead_seconds}s"
+        )
+
+        success = await settings_service.update_token_auto_refresh_config(
+            db,
+            config_data.enabled,
+            config_data.interval_seconds,
+            config_data.lead_seconds
+        )
+
+        if success:
+            return JSONResponse(content={"success": True, "message": "Token 自动刷新配置已保存"})
+
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"success": False, "error": "保存失败"}
+        )
+
+    except Exception as e:
+        logger.error(f"更新 Token 自动刷新配置失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"success": False, "error": f"更新失败: {str(e)}"}
+        )

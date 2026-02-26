@@ -3,6 +3,7 @@ Team 管理服务
 用于管理 Team 账号的导入、同步、成员管理等功能
 """
 import logging
+import asyncio
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from sqlalchemy import select, update, delete, func
@@ -15,6 +16,7 @@ from app.services.encryption import encryption_service
 from app.utils.token_parser import TokenParser
 from app.utils.jwt_parser import JWTParser
 from app.utils.time_utils import get_now
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +31,18 @@ class TeamService:
         self.token_parser = TokenParser()
         self.jwt_parser = JWTParser()
 
-    async def _handle_api_error(self, result: Dict[str, Any], team: Team, db_session: AsyncSession) -> bool:
+    async def _handle_api_error(
+        self,
+        result: Dict[str, Any],
+        team: Team,
+        db_session: AsyncSession,
+        stop_on_nonfatal: bool = True
+    ) -> bool:
         """
         检查结果是否表示账号被封禁、Token 失效或 Team 已满,如果是则更新状态
         
         Returns:
-            bool: 是否已处理致命错误
+            bool: 是否应中断当前流程
         """
         error_code = result.get("error_code")
         error_msg = str(result.get("error", "")).lower()
@@ -107,14 +115,15 @@ class TeamService:
                 logger.error(f"Team {team.id} 连续错误 {team.error_count} 次，标记为 error")
                 team.status = "error"
         
-        # 如果是 Token 过期，尝试立即刷新一次（为下次重试做准备）
-        if is_token_expired:
+        # 仅在普通 API 请求流程中，Token 过期时尝试后台刷新一次
+        # 刷新流程内部失败时不再递归触发刷新，避免死循环
+        if is_token_expired and stop_on_nonfatal:
             logger.info(f"Team {team.id} Token 过期，尝试后台刷新...")
             # 注意：此处不等待刷新结果，仅作为修复尝试
             await self.ensure_access_token(team, db_session)
             
         await db_session.commit()
-        return True
+        return stop_on_nonfatal
         
     async def _reset_error_status(self, team: Team, db_session: AsyncSession) -> None:
         """
@@ -125,6 +134,94 @@ class TeamService:
             logger.info(f"Team {team.id} ({team.email}) 请求成功, 将状态从 error 恢复为 active")
             team.status = "active"
         await db_session.commit()
+
+    def _should_proactive_refresh(self, team: Team) -> bool:
+        """
+        判断是否需要在后台提前刷新 Token
+        """
+        try:
+            if not team.access_token_encrypted:
+                return True
+            access_token = encryption_service.decrypt_token(team.access_token_encrypted)
+            exp_time = self.jwt_parser.get_expiration_time(access_token)
+            if not exp_time:
+                return True
+            now = get_now()
+            lead = max(0, int(settings.token_refresh_lead_seconds or 0))
+            return (exp_time - now).total_seconds() <= lead
+        except Exception:
+            return True
+
+    async def proactive_refresh_due_tokens(self, db_session: AsyncSession) -> Dict[str, Any]:
+        """
+        扫描并提前刷新即将过期的 Team Token（后台任务使用）
+        """
+        stmt = select(Team).where(Team.status != "banned")
+        result = await db_session.execute(stmt)
+        teams = result.scalars().all()
+
+        checked = 0
+        refreshed = 0
+        failed = 0
+
+        for team in teams:
+            checked += 1
+            if not self._should_proactive_refresh(team):
+                continue
+
+            token = await self.ensure_access_token(team, db_session, force_refresh=True)
+            if token:
+                refreshed += 1
+            else:
+                failed += 1
+
+        return {
+            "success": True,
+            "checked": checked,
+            "refreshed": refreshed,
+            "failed": failed
+        }
+
+    def _is_token_expired_error(self, result: Dict[str, Any]) -> bool:
+        """判断接口结果是否属于 Token 过期类错误"""
+        error_msg = str(result.get("error", "")).lower()
+        error_code = str(result.get("error_code", "")).lower()
+        return (
+            error_code == "token_expired"
+            or "token_expired" in error_msg
+            or "token is expired" in error_msg
+            or result.get("status_code") == 401
+        )
+
+    async def _request_with_refresh_retry(
+        self,
+        team: Team,
+        db_session: AsyncSession,
+        request_func
+    ) -> Dict[str, Any]:
+        """
+        请求级双保险：若本次请求报 Token 过期，则强制刷新后重试一次
+        """
+        access_token = await self.ensure_access_token(team, db_session)
+        if not access_token:
+            return {"success": False, "error": "Token 已过期且无法刷新", "error_code": "token_expired"}
+
+        first = await request_func(access_token)
+        if first.get("success"):
+            return first
+
+        if not self._is_token_expired_error(first):
+            return first
+
+        logger.info(f"Team {team.id} 请求触发 Token 过期，强制刷新并重试一次")
+        refreshed_token = await self.ensure_access_token(team, db_session, force_refresh=True)
+        if not refreshed_token:
+            return first
+
+        second = await request_func(refreshed_token)
+        if second.get("success"):
+            logger.info(f"Team {team.id} 刷新后重试请求成功")
+        return second
 
     async def ensure_access_token(self, team: Team, db_session: AsyncSession, force_refresh: bool = False) -> Optional[str]:
         """
@@ -176,7 +273,7 @@ class TeamService:
                 return new_at
             else:
                 # 检查是否为致命错误 (如 token_invalidated)
-                if await self._handle_api_error(refresh_result, team, db_session):
+                if await self._handle_api_error(refresh_result, team, db_session, stop_on_nonfatal=False):
                     return None
 
         # 4. 尝试使用 refresh_token 刷新
@@ -197,7 +294,7 @@ class TeamService:
                 return new_at
             else:
                 # 检查是否为致命错误 (如 account_deactivated)
-                if await self._handle_api_error(refresh_result, team, db_session):
+                if await self._handle_api_error(refresh_result, team, db_session, stop_on_nonfatal=False):
                     return None
         
         if team.status != "banned":
@@ -837,6 +934,7 @@ class TeamService:
                         account_result = await self.chatgpt_service.get_account_info(new_token, db_session, identifier=team.email)
                         if account_result["success"]:
                             logger.info(f"Team {team.id} 自动刷新 Token 后重试同步成功")
+                            access_token = new_token
                         else:
                             # 刷新成功但请求依然失败，标记为过期/异常
                             logger.error(f"Team {team.id} Token 刷新成功但获取账户信息仍失败，标记为 expired")
@@ -1238,22 +1336,17 @@ class TeamService:
                     "error": f"Team ID {team_id} 不存在"
                 }
 
-            # 2. 确保 AT Token 有效
-            access_token = await self.ensure_access_token(team, db_session)
-            if not access_token:
-                return {
-                    "success": False,
-                    "message": None,
-                    "error": "Token 已过期且无法刷新"
-                }
-
-            # 3. 调用 ChatGPT API 撤回邀请
-            revoke_result = await self.chatgpt_service.delete_invite(
-                access_token,
-                team.account_id,
-                email,
+            # 2. 调用 ChatGPT API 撤回邀请（请求级双保险）
+            revoke_result = await self._request_with_refresh_retry(
+                team,
                 db_session,
-                identifier=team.email
+                lambda token: self.chatgpt_service.delete_invite(
+                    token,
+                    team.account_id,
+                    email,
+                    db_session,
+                    identifier=team.email
+                )
             )
 
             if not revoke_result["success"]:
@@ -1352,22 +1445,17 @@ class TeamService:
                     "error": "Team 已过期,无法添加成员"
                 }
 
-            # 3. 确保 AT Token 有效
-            access_token = await self.ensure_access_token(team, db_session)
-            if not access_token:
-                return {
-                    "success": False,
-                    "message": None,
-                    "error": "Token 已过期且无法刷新"
-                }
-
-            # 4. 调用 ChatGPT API 发送邀请
-            invite_result = await self.chatgpt_service.send_invite(
-                access_token,
-                team.account_id,
-                email,
+            # 3. 调用 ChatGPT API 发送邀请（请求级双保险：失败可触发刷新后重试）
+            invite_result = await self._request_with_refresh_retry(
+                team,
                 db_session,
-                identifier=team.email
+                lambda token: self.chatgpt_service.send_invite(
+                    token,
+                    team.account_id,
+                    email,
+                    db_session,
+                    identifier=team.email
+                )
             )
 
             if not invite_result["success"]:
@@ -1448,22 +1536,17 @@ class TeamService:
                     "error": f"Team ID {team_id} 不存在"
                 }
 
-            # 2. 确保 AT Token 有效
-            access_token = await self.ensure_access_token(team, db_session)
-            if not access_token:
-                return {
-                    "success": False,
-                    "message": None,
-                    "error": "Token 已过期且无法刷新"
-                }
-
-            # 3. 调用 ChatGPT API 删除成员
-            delete_result = await self.chatgpt_service.delete_member(
-                access_token,
-                team.account_id,
-                user_id,
+            # 2. 调用 ChatGPT API 删除成员（请求级双保险）
+            delete_result = await self._request_with_refresh_retry(
+                team,
                 db_session,
-                identifier=team.email
+                lambda token: self.chatgpt_service.delete_member(
+                    token,
+                    team.account_id,
+                    user_id,
+                    db_session,
+                    identifier=team.email
+                )
             )
 
             if not delete_result["success"]:

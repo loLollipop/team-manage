@@ -10,6 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import logging
 from pathlib import Path
 from datetime import datetime
+import asyncio
 
 from contextlib import asynccontextmanager
 # 导入路由
@@ -17,6 +18,8 @@ from app.routes import redeem, auth, admin, api, user, warranty
 from app.config import settings
 from app.database import init_db, close_db, AsyncSessionLocal
 from app.services.auth import auth_service
+from app.services.team import team_service
+from app.services.settings import settings_service
 
 # 获取项目根目录
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -30,28 +33,62 @@ async def lifespan(app: FastAPI):
     应用生命周期管理
     启动时初始化数据库，关闭时释放资源
     """
+    auto_refresh_task = None
+
+    async def token_auto_refresh_loop():
+        logger.info("Token 自动刷新后台任务已启动")
+        while True:
+            interval = max(5, int(settings.token_auto_refresh_interval_seconds or 30))
+            try:
+                async with AsyncSessionLocal() as session:
+                    runtime_config = await settings_service.get_token_auto_refresh_config(session)
+                    enabled = runtime_config["enabled"]
+                    interval = max(5, int(runtime_config["interval_seconds"]))
+                    settings.token_auto_refresh_enabled = enabled
+                    settings.token_auto_refresh_interval_seconds = interval
+                    settings.token_refresh_lead_seconds = int(runtime_config["lead_seconds"])
+
+                    if enabled:
+                        await team_service.proactive_refresh_due_tokens(session)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Token 自动刷新任务异常: {e}")
+            await asyncio.sleep(interval)
+
     logger.info("系统正在启动，正在初始化数据库...")
     try:
         # 0. 确保数据库目录存在
         db_file = settings.database_url.split("///")[-1]
         Path(db_file).parent.mkdir(parents=True, exist_ok=True)
-        
+
         # 1. 创建数据库表
         await init_db()
-        
+
         # 2. 运行自动数据库迁移
         from app.db_migrations import run_auto_migration
         run_auto_migration()
-        
+
         # 3. 初始化管理员密码（如果不存在）
         async with AsyncSessionLocal() as session:
             await auth_service.initialize_admin_password(session)
+
+        # 4. 启动 Token 自动刷新后台任务（运行时配置可在线调整）
+        auto_refresh_task = asyncio.create_task(token_auto_refresh_loop())
+
         logger.info("数据库初始化完成")
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
-    
+
     yield
-    
+
+    if auto_refresh_task:
+        auto_refresh_task.cancel()
+        try:
+            await auto_refresh_task
+        except asyncio.CancelledError:
+            pass
+
     # 关闭连接
     await close_db()
     logger.info("系统正在关闭，已释放数据库连接")
