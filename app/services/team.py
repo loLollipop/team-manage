@@ -5,12 +5,12 @@ Team 管理服务
 import logging
 import asyncio
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Team, TeamAccount
+from app.models import Team, TeamAccount, RedemptionCode, RedemptionRecord
 from app.services.chatgpt import ChatGPTService
 from app.services.encryption import encryption_service
 from app.utils.token_parser import TokenParser
@@ -1915,6 +1915,94 @@ class TeamService:
             logger.error(f"撤回邀请或删除成员时发生异常: {e}")
             return {"success": False, "error": str(e)}
 
+
+    async def cleanup_expired_teams(
+        self,
+        db_session: AsyncSession,
+        retention_days: int = 30
+    ) -> Dict[str, Any]:
+        """
+        自动清理到期超过 retention_days 天的 Team。
+
+        规则：
+        - 若 Team 关联了仍在质保期内的兑换码，则跳过（保护后续质保复用）。
+        - 无质保保护时：有兑换记录则软删除；无兑换记录则硬删除。
+        """
+        try:
+            now = get_now()
+            cutoff = now - timedelta(days=max(1, retention_days))
+
+            stmt = select(Team).where(
+                Team.expires_at.is_not(None),
+                Team.expires_at < cutoff
+            )
+            result = await db_session.execute(stmt)
+            expired_teams = result.scalars().all()
+
+            hard_deleted = 0
+            soft_deleted = 0
+            skipped_warranty = 0
+
+            for team in expired_teams:
+                # 已软删除的不重复处理
+                if team.status == "deleted":
+                    continue
+
+                # 若存在仍在质保期内的兑换码，跳过自动删除
+                active_warranty_stmt = (
+                    select(func.count(RedemptionCode.id))
+                    .join(RedemptionRecord, RedemptionRecord.code == RedemptionCode.code)
+                    .where(
+                        RedemptionRecord.team_id == team.id,
+                        RedemptionCode.has_warranty.is_(True),
+                        RedemptionCode.warranty_expires_at.is_not(None),
+                        RedemptionCode.warranty_expires_at > now
+                    )
+                )
+                active_warranty_result = await db_session.execute(active_warranty_stmt)
+                active_warranty_count = active_warranty_result.scalar() or 0
+                if active_warranty_count > 0:
+                    skipped_warranty += 1
+                    continue
+
+                records_count_stmt = select(func.count(RedemptionRecord.id)).where(RedemptionRecord.team_id == team.id)
+                records_count_result = await db_session.execute(records_count_stmt)
+                records_count = records_count_result.scalar() or 0
+
+                if records_count > 0:
+                    team.status = "deleted"
+                    team.team_name = f"[自动删除] {team.team_name or team.email}"
+                    team.last_sync = now
+                    await db_session.execute(
+                        delete(TeamAccount).where(TeamAccount.team_id == team.id)
+                    )
+                    soft_deleted += 1
+                else:
+                    await db_session.delete(team)
+                    hard_deleted += 1
+
+            await db_session.commit()
+
+            return {
+                "success": True,
+                "hard_deleted": hard_deleted,
+                "soft_deleted": soft_deleted,
+                "skipped_warranty": skipped_warranty,
+                "total_candidates": len(expired_teams),
+                "error": None
+            }
+        except Exception as e:
+            await db_session.rollback()
+            logger.error(f"自动清理 Team 失败: {e}")
+            return {
+                "success": False,
+                "hard_deleted": 0,
+                "soft_deleted": 0,
+                "skipped_warranty": 0,
+                "total_candidates": 0,
+                "error": f"自动清理 Team 失败: {str(e)}"
+            }
+
     async def delete_team(
         self,
         team_id: int,
@@ -1922,6 +2010,9 @@ class TeamService:
     ) -> Dict[str, Any]:
         """
         删除 Team
+
+        对于存在兑换记录的 Team，采用“软删除”以保留质保/历史关联；
+        对于无兑换记录的 Team，执行“硬删除”。
 
         Args:
             team_id: Team ID
@@ -1943,7 +2034,37 @@ class TeamService:
                     "error": f"Team ID {team_id} 不存在"
                 }
 
-            # 2. 删除 Team (级联删除 team_accounts 和 redemption_records)
+            # 2. 判断是否存在兑换记录（含质保关联）
+            records_count_stmt = select(func.count(RedemptionRecord.id)).where(RedemptionRecord.team_id == team_id)
+            records_count_result = await db_session.execute(records_count_stmt)
+            records_count = records_count_result.scalar() or 0
+
+            if records_count > 0:
+                # 2.1 软删除：保留 Team 与兑换记录关联，避免影响质保查询
+                team.status = "deleted"
+                team.team_name = f"[已删除] {team.team_name or team.email}"
+                team.last_sync = get_now()
+
+                # 清理 TeamAccount，避免后续被当作可用 Team 使用
+                await db_session.execute(
+                    delete(TeamAccount).where(TeamAccount.team_id == team_id)
+                )
+
+                await db_session.commit()
+                logger.info(f"Team {team_id} 存在 {records_count} 条兑换记录，已执行软删除")
+                return {
+                    "success": True,
+                    "message": "Team 已软删除（保留质保与历史记录）",
+                    "error": None
+                }
+
+            # 2.2 无兑换记录时执行硬删除
+            await db_session.execute(
+                update(RedemptionCode)
+                .where(RedemptionCode.used_team_id == team_id)
+                .values(used_team_id=None)
+            )
+
             await db_session.delete(team)
             await db_session.commit()
 
