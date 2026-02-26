@@ -3,6 +3,7 @@ Team 管理服务
 用于管理 Team 账号的导入、同步、成员管理等功能
 """
 import logging
+import asyncio
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from sqlalchemy import select, update, delete, func
@@ -15,6 +16,7 @@ from app.services.encryption import encryption_service
 from app.utils.token_parser import TokenParser
 from app.utils.jwt_parser import JWTParser
 from app.utils.time_utils import get_now
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +134,53 @@ class TeamService:
             logger.info(f"Team {team.id} ({team.email}) 请求成功, 将状态从 error 恢复为 active")
             team.status = "active"
         await db_session.commit()
+
+    def _should_proactive_refresh(self, team: Team) -> bool:
+        """
+        判断是否需要在后台提前刷新 Token
+        """
+        try:
+            if not team.access_token_encrypted:
+                return True
+            access_token = encryption_service.decrypt_token(team.access_token_encrypted)
+            exp_time = self.jwt_parser.get_expiration_time(access_token)
+            if not exp_time:
+                return True
+            now = get_now()
+            lead = max(0, int(settings.token_refresh_lead_seconds or 0))
+            return (exp_time - now).total_seconds() <= lead
+        except Exception:
+            return True
+
+    async def proactive_refresh_due_tokens(self, db_session: AsyncSession) -> Dict[str, Any]:
+        """
+        扫描并提前刷新即将过期的 Team Token（后台任务使用）
+        """
+        stmt = select(Team).where(Team.status != "banned")
+        result = await db_session.execute(stmt)
+        teams = result.scalars().all()
+
+        checked = 0
+        refreshed = 0
+        failed = 0
+
+        for team in teams:
+            checked += 1
+            if not self._should_proactive_refresh(team):
+                continue
+
+            token = await self.ensure_access_token(team, db_session, force_refresh=True)
+            if token:
+                refreshed += 1
+            else:
+                failed += 1
+
+        return {
+            "success": True,
+            "checked": checked,
+            "refreshed": refreshed,
+            "failed": failed
+        }
 
     async def ensure_access_token(self, team: Team, db_session: AsyncSession, force_refresh: bool = False) -> Optional[str]:
         """
