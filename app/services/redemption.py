@@ -291,7 +291,17 @@ class RedemptionService:
                         "error": None
                     }
 
-            # 4. 验证通过
+            # 4. 质保有效期校验（无论兑换码是否“永久有效”，质保到期后均不可验证通过）
+            if redemption_code.has_warranty and redemption_code.warranty_expires_at and redemption_code.warranty_expires_at < get_now():
+                return {
+                    "success": True,
+                    "valid": False,
+                    "reason": "质保已过期，无法继续兑换",
+                    "redemption_code": None,
+                    "error": None
+                }
+
+            # 5. 验证通过
             return {
                 "success": True,
                 "valid": True,
@@ -391,6 +401,77 @@ class RedemptionService:
                 "success": False,
                 "message": None,
                 "error": f"使用兑换码失败: {str(e)}"
+            }
+
+
+    async def cleanup_old_redemption_data(
+        self,
+        db_session: AsyncSession,
+        retention_days: int = 30
+    ) -> Dict[str, Any]:
+        """
+        自动清理兑换历史数据。
+
+        规则：
+        - 以 used_at（兑换时间）为准，超过 retention_days 天的记录纳入候选。
+        - 仅清理“非质保码”或“质保已过期”的数据，避免影响有效质保复用。
+        """
+        try:
+            now = get_now()
+            cutoff = now - timedelta(days=max(1, retention_days))
+
+            candidates_stmt = select(RedemptionCode).where(
+                RedemptionCode.used_at.is_not(None),
+                RedemptionCode.used_at < cutoff
+            )
+            candidates_result = await db_session.execute(candidates_stmt)
+            candidates = candidates_result.scalars().all()
+
+            deleted_codes = 0
+            deleted_records = 0
+            skipped_warranty = 0
+
+            for code_obj in candidates:
+                keep_for_warranty = (
+                    code_obj.has_warranty
+                    and (
+                        not code_obj.warranty_expires_at
+                        or code_obj.warranty_expires_at > now
+                    )
+                )
+                if keep_for_warranty:
+                    skipped_warranty += 1
+                    continue
+
+                # 先删使用记录，再删兑换码（避免外键约束）
+                rec_del_result = await db_session.execute(
+                    delete(RedemptionRecord).where(RedemptionRecord.code == code_obj.code)
+                )
+                deleted_records += rec_del_result.rowcount or 0
+
+                await db_session.delete(code_obj)
+                deleted_codes += 1
+
+            await db_session.commit()
+
+            return {
+                "success": True,
+                "deleted_codes": deleted_codes,
+                "deleted_records": deleted_records,
+                "skipped_warranty": skipped_warranty,
+                "total_candidates": len(candidates),
+                "error": None
+            }
+        except Exception as e:
+            await db_session.rollback()
+            logger.error(f"自动清理兑换数据失败: {e}")
+            return {
+                "success": False,
+                "deleted_codes": 0,
+                "deleted_records": 0,
+                "skipped_warranty": 0,
+                "total_candidates": 0,
+                "error": f"自动清理兑换数据失败: {str(e)}"
             }
 
     async def get_all_codes(

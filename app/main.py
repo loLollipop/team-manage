@@ -19,6 +19,7 @@ from app.config import settings
 from app.database import init_db, close_db, AsyncSessionLocal
 from app.services.auth import auth_service
 from app.services.team import team_service
+from app.services.redemption import redemption_service
 from app.services.settings import settings_service
 
 # 获取项目根目录
@@ -34,6 +35,7 @@ async def lifespan(app: FastAPI):
     启动时初始化数据库，关闭时释放资源
     """
     auto_refresh_task = None
+    auto_cleanup_task = None
 
     async def token_auto_refresh_loop():
         logger.info("Token 自动刷新后台任务已启动")
@@ -56,6 +58,26 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Token 自动刷新任务异常: {e}")
             await asyncio.sleep(interval)
 
+
+
+    async def auto_cleanup_loop():
+        logger.info("自动清理后台任务已启动")
+        while True:
+            interval = 6 * 60 * 60
+            try:
+                async with AsyncSessionLocal() as session:
+                    team_result = await team_service.cleanup_expired_teams(session, retention_days=30)
+                    code_result = await redemption_service.cleanup_old_redemption_data(session, retention_days=30)
+                    logger.info(
+                        "自动清理完成: teams=%s, codes=%s",
+                        team_result,
+                        code_result
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"自动清理任务异常: {e}")
+            await asyncio.sleep(interval)
     logger.info("系统正在启动，正在初始化数据库...")
     try:
         # 0. 确保数据库目录存在
@@ -76,6 +98,9 @@ async def lifespan(app: FastAPI):
         # 4. 启动 Token 自动刷新后台任务（运行时配置可在线调整）
         auto_refresh_task = asyncio.create_task(token_auto_refresh_loop())
 
+        # 5. 启动过期数据自动清理任务（每 6 小时执行一次）
+        auto_cleanup_task = asyncio.create_task(auto_cleanup_loop())
+
         logger.info("数据库初始化完成")
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
@@ -86,6 +111,13 @@ async def lifespan(app: FastAPI):
         auto_refresh_task.cancel()
         try:
             await auto_refresh_task
+        except asyncio.CancelledError:
+            pass
+
+    if auto_cleanup_task:
+        auto_cleanup_task.cancel()
+        try:
+            await auto_cleanup_task
         except asyncio.CancelledError:
             pass
 
