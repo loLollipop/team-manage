@@ -415,6 +415,7 @@ class RedemptionService:
         规则：
         - 以 used_at（兑换时间）为准，超过 retention_days 天的记录纳入候选。
         - 仅清理“非质保码”或“质保已过期”的数据，避免影响有效质保复用。
+        - 仅删除历史兑换记录，不物理删除兑换码本身，避免影响后续风控/排障。
         """
         try:
             now = get_now()
@@ -427,9 +428,9 @@ class RedemptionService:
             candidates_result = await db_session.execute(candidates_stmt)
             candidates = candidates_result.scalars().all()
 
-            deleted_codes = 0
             deleted_records = 0
             skipped_warranty = 0
+            archived_codes = 0
 
             for code_obj in candidates:
                 keep_for_warranty = (
@@ -443,20 +444,29 @@ class RedemptionService:
                     skipped_warranty += 1
                     continue
 
-                # 先删使用记录，再删兑换码（避免外键约束）
+                # 仅删除历史记录，保留兑换码元数据。
+                # 否则会导致后续查询变成“兑换码不存在”，影响排障与风控判断。
                 rec_del_result = await db_session.execute(
                     delete(RedemptionRecord).where(RedemptionRecord.code == code_obj.code)
                 )
                 deleted_records += rec_del_result.rowcount or 0
 
-                await db_session.delete(code_obj)
-                deleted_codes += 1
+                # 对已过期的质保码进行状态归档，避免继续显示为 warranty_active
+                if code_obj.has_warranty and code_obj.status == "warranty_active":
+                    code_obj.status = "expired"
+
+                # 脱敏旧使用信息，减少隐私数据长期保留
+                code_obj.used_by_email = None
+                code_obj.used_team_id = None
+                code_obj.used_at = None
+                archived_codes += 1
 
             await db_session.commit()
 
             return {
                 "success": True,
-                "deleted_codes": deleted_codes,
+                "deleted_codes": 0,
+                "archived_codes": archived_codes,
                 "deleted_records": deleted_records,
                 "skipped_warranty": skipped_warranty,
                 "total_candidates": len(candidates),
@@ -468,6 +478,7 @@ class RedemptionService:
             return {
                 "success": False,
                 "deleted_codes": 0,
+                "archived_codes": 0,
                 "deleted_records": 0,
                 "skipped_warranty": 0,
                 "total_candidates": 0,
