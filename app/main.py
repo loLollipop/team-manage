@@ -35,6 +35,7 @@ async def lifespan(app: FastAPI):
     启动时初始化数据库，关闭时释放资源
     """
     auto_refresh_task = None
+    auto_team_sync_task = None
     auto_cleanup_task = None
 
     async def token_auto_refresh_loop():
@@ -58,6 +59,19 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Token 自动刷新任务异常: {e}")
             await asyncio.sleep(interval)
 
+    async def team_auto_sync_loop():
+        logger.info("Team 信息自动同步后台任务已启动")
+        while True:
+            interval = 24 * 60 * 60
+            try:
+                async with AsyncSessionLocal() as session:
+                    sync_result = await team_service.sync_all_teams(session)
+                    logger.info("Team 信息自动同步完成: %s", sync_result)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Team 信息自动同步任务异常: {e}")
+            await asyncio.sleep(interval)
 
 
     async def auto_cleanup_loop():
@@ -98,7 +112,10 @@ async def lifespan(app: FastAPI):
         # 4. 启动 Token 自动刷新后台任务（运行时配置可在线调整）
         auto_refresh_task = asyncio.create_task(token_auto_refresh_loop())
 
-        # 5. 启动过期数据自动清理任务（每 6 小时执行一次）
+        # 5. 启动 Team 信息自动同步任务（每 24 小时执行一次）
+        auto_team_sync_task = asyncio.create_task(team_auto_sync_loop())
+
+        # 6. 启动过期数据自动清理任务（每 6 小时执行一次）
         auto_cleanup_task = asyncio.create_task(auto_cleanup_loop())
 
         logger.info("数据库初始化完成")
@@ -111,6 +128,13 @@ async def lifespan(app: FastAPI):
         auto_refresh_task.cancel()
         try:
             await auto_refresh_task
+        except asyncio.CancelledError:
+            pass
+
+    if auto_team_sync_task:
+        auto_team_sync_task.cancel()
+        try:
+            await auto_team_sync_task
         except asyncio.CancelledError:
             pass
 
