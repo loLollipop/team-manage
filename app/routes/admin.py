@@ -97,6 +97,11 @@ class BulkCodeUpdateRequest(BaseModel):
     warranty_days: Optional[int] = Field(None, description="质保天数")
 
 
+class BulkCodeDeleteRequest(BaseModel):
+    """批量删除兑换码请求"""
+    codes: List[str] = Field(..., description="兑换码列表")
+
+
 @router.get("/", response_class=HTMLResponse)
 async def admin_dashboard(
     request: Request,
@@ -912,6 +917,29 @@ async def bulk_update_codes(
         )
 
 
+
+
+@router.post("/codes/bulk-delete")
+async def bulk_delete_codes(
+    delete_data: BulkCodeDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """批量删除兑换码"""
+    try:
+        result = await redemption_service.bulk_delete_codes(delete_data.codes, db)
+        if not result["success"]:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content=result
+            )
+        return JSONResponse(content=result)
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"success": False, "error": str(e)}
+        )
+
 @router.get("/records", response_class=HTMLResponse)
 async def records_page(
     request: Request,
@@ -1139,12 +1167,13 @@ async def reminders_page(
     try:
         from app.main import templates
         data = await member_lifecycle_service.get_reminders(db)
+        reminders = [item for item in data.get("items", []) if item.get("status") == "pending"]
         return templates.TemplateResponse(
             "admin/reminders/index.html",
             {
                 "request": request,
                 "active_page": "reminders",
-                "reminders": data.get("items", []),
+                "reminders": reminders,
             }
         )
     except Exception as e:
