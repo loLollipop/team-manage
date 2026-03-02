@@ -2,7 +2,7 @@
 系统设置服务
 管理系统配置的读取、更新和缓存
 """
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Setting
@@ -286,6 +286,35 @@ class SettingsService:
 
         return success
 
+
+    async def get_reminder_email_config(self, session: AsyncSession) -> Dict[str, Any]:
+        """获取到期提醒邮件配置（仅用于手动发件模板）"""
+        due_days_raw = await self.get_setting(session, "reminder_due_days", "3")
+
+        try:
+            due_days = max(0, int(due_days_raw))
+        except Exception:
+            due_days = 3
+
+        return {
+            "due_days": due_days,
+            "subject": await self.get_setting(session, "reminder_email_subject", "team空间到期提醒"),
+            "body_template": await self.get_setting(
+                session,
+                "reminder_email_body",
+                "您好，您加入的team工作空间一个月套餐即将到期，请及时联系管理员续期，否则到期后将踢出工作空间~"
+            ),
+        }
+
+    async def update_reminder_email_config(self, session: AsyncSession, data: Dict[str, Any]) -> bool:
+        """更新到期提醒邮件配置（仅保存提醒规则和邮件模板）"""
+        normalized_due_days = max(0, int(data.get("due_days", 3)))
+        settings_payload = {
+            "reminder_due_days": str(normalized_due_days),
+            "reminder_email_subject": data.get("subject", "team空间到期提醒"),
+            "reminder_email_body": data.get("body_template", ""),
+        }
+        return await self.update_settings(session, settings_payload)
 
 # 创建全局实例
 settings_service = SettingsService()

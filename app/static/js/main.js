@@ -616,11 +616,19 @@ async function handleAddMember(event) {
     event.preventDefault();
     const form = event.target;
     const email = form.email.value.trim();
+    const isLegacyCustomer = !!form.is_legacy_customer?.checked;
+    const legacyDaysRaw = form.legacy_remaining_warranty_days?.value;
+    const legacyRemainingWarrantyDays = legacyDaysRaw === '' || legacyDaysRaw == null ? null : Number(legacyDaysRaw);
     const submitButton = document.getElementById('addMemberSubmitBtn');
     const teamId = window.currentTeamId;
 
     if (!teamId) {
         showToast('无法获取 Team ID', 'error');
+        return;
+    }
+
+    if (isLegacyCustomer && (legacyRemainingWarrantyDays == null || Number.isNaN(legacyRemainingWarrantyDays) || legacyRemainingWarrantyDays < 0 || legacyRemainingWarrantyDays > 365)) {
+        showToast('旧账客户请填写 0-365 之间的剩余质保天数', 'error');
         return;
     }
 
@@ -631,7 +639,11 @@ async function handleAddMember(event) {
     try {
         const result = await apiCall(`/admin/teams/${teamId}/members/add`, {
             method: 'POST',
-            body: JSON.stringify({ email })
+            body: JSON.stringify({
+                email,
+                is_legacy_customer: isLegacyCustomer,
+                legacy_remaining_warranty_days: isLegacyCustomer ? legacyRemainingWarrantyDays : null
+            })
         });
 
         if (result.success) {
@@ -679,3 +691,16 @@ async function deleteMember(teamId, userId, email, inModal = false) {
         showToast('网络错误', 'error');
     }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    const legacyCheckbox = document.getElementById('isLegacyCustomer');
+    const legacyDaysInput = document.getElementById('legacyRemainingWarrantyDays');
+    if (legacyCheckbox && legacyDaysInput) {
+        legacyCheckbox.addEventListener('change', () => {
+            const checked = legacyCheckbox.checked;
+            legacyDaysInput.style.display = checked ? 'block' : 'none';
+            legacyDaysInput.required = checked;
+            if (!checked) legacyDaysInput.value = '';
+        });
+    }
+});
