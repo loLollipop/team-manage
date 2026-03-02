@@ -878,6 +878,61 @@ class RedemptionService:
             logger.error(traceback.format_exc())
             return {"success": False, "error": f"撤回失败: {str(e)}"}
 
+    async def bulk_delete_codes(
+        self,
+        codes: List[str],
+        db_session: AsyncSession
+    ) -> Dict[str, Any]:
+        """批量删除兑换码（仅允许删除未使用兑换码）"""
+        try:
+            if not codes:
+                return {
+                    "success": True,
+                    "message": "没有需要删除的兑换码",
+                    "deleted_count": 0,
+                    "requested_count": 0,
+                    "skipped_count": 0
+                }
+
+            deduplicated_codes = list(dict.fromkeys(codes))
+
+            delete_stmt = delete(RedemptionCode).where(
+                and_(
+                    RedemptionCode.code.in_(deduplicated_codes),
+                    RedemptionCode.status == "unused"
+                )
+            )
+            result = await db_session.execute(delete_stmt)
+            await db_session.commit()
+
+            deleted_count = result.rowcount or 0
+            requested_count = len(deduplicated_codes)
+            skipped_count = max(0, requested_count - deleted_count)
+
+            logger.info(
+                f"成功批量删除兑换码: 请求 {requested_count} 个, 实际删除 {deleted_count} 个, 跳过 {skipped_count} 个"
+            )
+            return {
+                "success": True,
+                "message": f"成功删除 {deleted_count} 个兑换码，跳过 {skipped_count} 个（仅未使用兑换码可删除）",
+                "deleted_count": deleted_count,
+                "requested_count": requested_count,
+                "skipped_count": skipped_count,
+                "error": None
+            }
+
+        except Exception as e:
+            await db_session.rollback()
+            logger.error(f"批量删除兑换码失败: {e}")
+            return {
+                "success": False,
+                "message": None,
+                "deleted_count": 0,
+                "requested_count": 0,
+                "skipped_count": 0,
+                "error": f"批量删除失败: {str(e)}"
+            }
+
     async def bulk_update_codes(
         self,
         codes: List[str],
