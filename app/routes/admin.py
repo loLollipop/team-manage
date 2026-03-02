@@ -570,6 +570,9 @@ async def codes_list_page(
         all_codes_result = await redemption_service.get_all_codes(db, page=1, per_page=10000)
         all_codes = all_codes_result.get("codes", [])
 
+        reminders_result = await member_lifecycle_service.get_reminders(db)
+        reminders = reminders_result.get("items", [])
+
         # 计算统计数据
         stats = {
             "total": total_codes,
@@ -600,6 +603,7 @@ async def codes_list_page(
                 "codes": codes,
                 "stats": stats,
                 "search": search,
+                "reminders": reminders,
                 "pagination": {
                     "current_page": current_page,
                     "total_pages": total_pages,
@@ -1061,6 +1065,7 @@ async def records_page(
                     "start_date": start_date,
                     "end_date": end_date
                 },
+                "reminders": reminders,
                 "pagination": {
                     "current_page": page_int,
                     "total_pages": total_pages,
