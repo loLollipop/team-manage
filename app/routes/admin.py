@@ -1027,6 +1027,10 @@ async def records_page(
             except:
                 pass
 
+        # 读取提醒数据（供布局/上下文使用，避免模板上下文缺失）
+        reminders_result = await member_lifecycle_service.get_reminders(db)
+        reminders = reminders_result.get("items", [])
+
         # 分页
         # per_page = 20 (Removed hardcoded value)
         total_records = len(filtered_records)
