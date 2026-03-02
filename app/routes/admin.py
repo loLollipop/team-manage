@@ -1172,6 +1172,7 @@ async def reminders_page(
             "admin/reminders/index.html",
             {
                 "request": request,
+                "user": current_user,
                 "active_page": "reminders",
                 "reminders": reminders,
             }
