@@ -21,6 +21,7 @@ from app.services.auth import auth_service
 from app.services.team import team_service
 from app.services.redemption import redemption_service
 from app.services.settings import settings_service
+from app.services.member_lifecycle import member_lifecycle_service
 
 # 获取项目根目录
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -37,6 +38,7 @@ async def lifespan(app: FastAPI):
     auto_refresh_task = None
     auto_team_sync_task = None
     auto_cleanup_task = None
+    auto_member_reminder_task = None
 
     async def token_auto_refresh_loop():
         logger.info("Token 自动刷新后台任务已启动")
@@ -92,6 +94,28 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"自动清理任务异常: {e}")
             await asyncio.sleep(interval)
+
+    async def member_reminder_loop():
+        logger.info("成员到期提醒检查后台任务已启动")
+        while True:
+            interval = 24 * 60 * 60
+            try:
+                async with AsyncSessionLocal() as session:
+                    reminder_cfg = await settings_service.get_reminder_email_config(session)
+                    due_days = int(reminder_cfg.get("due_days", 3))
+                    result = await member_lifecycle_service.collect_due_reminders(session, due_days=due_days)
+
+                    if reminder_cfg.get("auto_send_enabled"):
+                        send_result = await member_lifecycle_service.auto_send_pending_reminders(session)
+                        logger.info("成员到期提醒自动发送结果: %s", send_result)
+
+                    logger.info("成员到期提醒检查完成: %s", result)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"成员到期提醒检查任务异常: {e}")
+            await asyncio.sleep(interval)
+
     logger.info("系统正在启动，正在初始化数据库...")
     try:
         # 0. 确保数据库目录存在
@@ -118,6 +142,9 @@ async def lifespan(app: FastAPI):
         # 6. 启动过期数据自动清理任务（每 6 小时执行一次）
         auto_cleanup_task = asyncio.create_task(auto_cleanup_loop())
 
+        # 7. 启动成员到期提醒扫描任务（每 24 小时执行一次）
+        auto_member_reminder_task = asyncio.create_task(member_reminder_loop())
+
         logger.info("数据库初始化完成")
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
@@ -142,6 +169,13 @@ async def lifespan(app: FastAPI):
         auto_cleanup_task.cancel()
         try:
             await auto_cleanup_task
+        except asyncio.CancelledError:
+            pass
+
+    if auto_member_reminder_task:
+        auto_member_reminder_task.cancel()
+        try:
+            await auto_member_reminder_task
         except asyncio.CancelledError:
             pass
 

@@ -2,7 +2,7 @@
 系统设置服务
 管理系统配置的读取、更新和缓存
 """
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Setting
@@ -286,6 +286,64 @@ class SettingsService:
 
         return success
 
+
+    async def get_reminder_email_config(self, session: AsyncSession) -> Dict[str, Any]:
+        """获取到期提醒邮件配置"""
+        smtp_port_raw = await self.get_setting(session, "smtp_port", "587")
+        auto_send_raw = await self.get_setting(session, "reminder_auto_send_enabled", "false")
+        due_days_raw = await self.get_setting(session, "reminder_due_days", "3")
+        channel = await self.get_setting(session, "reminder_send_channel", "smtp")
+
+        try:
+            smtp_port = int(smtp_port_raw)
+        except Exception:
+            smtp_port = 587
+
+        try:
+            due_days = max(0, int(due_days_raw))
+        except Exception:
+            due_days = 3
+
+        return {
+            "send_channel": channel,
+            "smtp_host": await self.get_setting(session, "smtp_host", ""),
+            "smtp_port": smtp_port,
+            "smtp_user": await self.get_setting(session, "smtp_user", ""),
+            "smtp_password": await self.get_setting(session, "smtp_password", ""),
+            "smtp_from": await self.get_setting(session, "smtp_from", ""),
+            "email_api_url": await self.get_setting(session, "email_api_url", ""),
+            "email_api_key": await self.get_setting(session, "email_api_key", ""),
+            "email_api_token": await self.get_setting(session, "email_api_token", ""),
+            "auto_send_enabled": auto_send_raw.lower() == "true",
+            "due_days": due_days,
+            "subject": await self.get_setting(session, "reminder_email_subject", "team空间到期提醒"),
+            "body_template": await self.get_setting(
+                session,
+                "reminder_email_body",
+                "您好，您加入的team工作空间一个月套餐即将到期，请及时联系管理员续期，否则到期后将踢出工作空间~"
+            ),
+        }
+
+    async def update_reminder_email_config(self, session: AsyncSession, data: Dict[str, Any]) -> bool:
+        """更新到期提醒邮件配置"""
+        normalized_due_days = max(0, int(data.get("due_days", 3)))
+        normalized_port = max(1, int(data.get("smtp_port", 587)))
+        settings_payload = {
+            "reminder_send_channel": data.get("send_channel", "smtp"),
+            "smtp_host": data.get("smtp_host", ""),
+            "smtp_port": str(normalized_port),
+            "smtp_user": data.get("smtp_user", ""),
+            "smtp_password": data.get("smtp_password", ""),
+            "smtp_from": data.get("smtp_from", ""),
+            "email_api_url": data.get("email_api_url", ""),
+            "email_api_key": data.get("email_api_key", ""),
+            "email_api_token": data.get("email_api_token", ""),
+            "reminder_auto_send_enabled": str(bool(data.get("auto_send_enabled", False))).lower(),
+            "reminder_due_days": str(normalized_due_days),
+            "reminder_email_subject": data.get("subject", "team空间到期提醒"),
+            "reminder_email_body": data.get("body_template", ""),
+        }
+        return await self.update_settings(session, settings_payload)
 
 # 创建全局实例
 settings_service = SettingsService()

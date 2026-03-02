@@ -14,6 +14,7 @@ from app.services.warranty import WarrantyService
 from app.services.team import TeamService
 from app.services.chatgpt import ChatGPTService
 from app.services.encryption import encryption_service
+from app.services.member_lifecycle import member_lifecycle_service
 from app.utils.time_utils import get_now
 
 logger = logging.getLogger(__name__)
@@ -336,6 +337,17 @@ class RedeemFlowService:
                             is_warranty_redemption=final_is_warranty
                         )
                         db_session.add(redemption_record)
+                        await member_lifecycle_service.upsert_lifecycle_event(
+                            db_session,
+                            email=email,
+                            team_id=team_id_final,
+                            source_type="redeem",
+                            event_type="redeem_join",
+                            code_or_manual_tag=code,
+                            has_warranty=final_is_warranty,
+                            warranty_expires_at=redemption_code.warranty_expires_at if final_is_warranty else None,
+                            event_time=redemption_record.redeemed_at,
+                        )
                     
                     logger.info(f"兑换成功: {email} 加入 Team {team_id_final}")
                     return {
