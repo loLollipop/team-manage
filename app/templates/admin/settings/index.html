@@ -117,6 +117,62 @@
     </form>
 </div>
 
+
+
+<div class="settings-section card">
+    <div class="section-header">
+        <h3>到期提醒邮件配置</h3>
+    </div>
+
+    <form id="reminderEmailForm" class="settings-form">
+        <div class="form-group">
+            <label for="reminderSendChannel">发送通道</label>
+            <select id="reminderSendChannel" name="send_channel" class="form-control">
+                <option value="smtp" {% if reminder_email_config.send_channel == 'smtp' %}selected{% endif %}>SMTP 邮箱</option>
+                <option value="email_api" {% if reminder_email_config.send_channel == 'email_api' %}selected{% endif %}>邮箱 API</option>
+            </select>
+            <p class="form-help">如果你使用油猴脚本中的邮箱接口，建议选择“邮箱 API”。</p>
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="reminderAutoSendEnabled" name="auto_send_enabled" {% if reminder_email_config.auto_send_enabled %}checked{% endif %}>
+                <span>开启自动发送（每日检查后自动发出）</span>
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label for="reminderDueDays">提前提醒天数</label>
+            <input type="number" id="reminderDueDays" name="due_days" class="form-control" min="0" max="30" value="{{ reminder_email_config.due_days }}">
+        </div>
+
+        <div class="form-group">
+            <label for="reminderSubject">邮件主题</label>
+            <input type="text" id="reminderSubject" name="subject" class="form-control" value="{{ reminder_email_config.subject }}">
+        </div>
+
+        <div class="form-group">
+            <label for="reminderBody">邮件正文模板</label>
+            <textarea id="reminderBody" name="body_template" class="form-control" rows="4">{{ reminder_email_config.body_template }}</textarea>
+            <p class="form-help">可用变量：{email}、{expire_at}、{days_left}</p>
+        </div>
+
+        <h4 style="margin: 1rem 0 0.5rem;">SMTP 配置</h4>
+        <div class="form-group"><label for="smtpHost">SMTP Host</label><input type="text" id="smtpHost" class="form-control" value="{{ reminder_email_config.smtp_host }}"></div>
+        <div class="form-group"><label for="smtpPort">SMTP Port</label><input type="number" id="smtpPort" class="form-control" min="1" max="65535" value="{{ reminder_email_config.smtp_port }}"></div>
+        <div class="form-group"><label for="smtpUser">SMTP 用户名</label><input type="text" id="smtpUser" class="form-control" value="{{ reminder_email_config.smtp_user }}"></div>
+        <div class="form-group"><label for="smtpPassword">SMTP 密码</label><input type="password" id="smtpPassword" class="form-control" value="{{ reminder_email_config.smtp_password }}"></div>
+        <div class="form-group"><label for="smtpFrom">发件人邮箱</label><input type="text" id="smtpFrom" class="form-control" value="{{ reminder_email_config.smtp_from }}"></div>
+
+        <h4 style="margin: 1rem 0 0.5rem;">邮箱 API 配置（可对应你的油猴脚本）</h4>
+        <div class="form-group"><label for="emailApiUrl">邮箱 API URL</label><input type="text" id="emailApiUrl" class="form-control" value="{{ reminder_email_config.email_api_url }}" placeholder="例如：https://xxx.onrender.com/api/send"></div>
+        <div class="form-group"><label for="emailApiKey">邮箱 API Key</label><input type="password" id="emailApiKey" class="form-control" value="{{ reminder_email_config.email_api_key }}"></div>
+        <div class="form-group"><label for="emailApiToken">邮箱 API Token</label><input type="password" id="emailApiToken" class="form-control" value="{{ reminder_email_config.email_api_token }}"></div>
+
+        <button type="submit" class="btn btn-primary">保存提醒邮件配置</button>
+    </form>
+</div>
+
 {% endblock %}
 
 {% block extra_css %}
@@ -219,6 +275,58 @@
         }
     });
 
+
+
+
+    // 到期提醒邮件配置表单
+    document.getElementById('reminderEmailForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const payload = {
+            send_channel: document.getElementById('reminderSendChannel').value,
+            auto_send_enabled: document.getElementById('reminderAutoSendEnabled').checked,
+            due_days: Number(document.getElementById('reminderDueDays').value || 3),
+            subject: document.getElementById('reminderSubject').value.trim(),
+            body_template: document.getElementById('reminderBody').value.trim(),
+            smtp_host: document.getElementById('smtpHost').value.trim(),
+            smtp_port: Number(document.getElementById('smtpPort').value || 587),
+            smtp_user: document.getElementById('smtpUser').value.trim(),
+            smtp_password: document.getElementById('smtpPassword').value,
+            smtp_from: document.getElementById('smtpFrom').value.trim(),
+            email_api_url: document.getElementById('emailApiUrl').value.trim(),
+            email_api_key: document.getElementById('emailApiKey').value.trim(),
+            email_api_token: document.getElementById('emailApiToken').value.trim()
+        };
+
+        if (payload.due_days < 0 || payload.due_days > 30) {
+            showToast('提前提醒天数必须在 0-30 之间', 'error');
+            return;
+        }
+        if (!payload.subject) {
+            showToast('请填写邮件主题', 'error');
+            return;
+        }
+        if (!payload.body_template) {
+            showToast('请填写邮件正文', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch('/admin/settings/reminder-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (response.ok && data.success) {
+                showToast('提醒邮件配置已保存', 'success');
+            } else {
+                showToast(data.error || '保存失败', 'error');
+            }
+        } catch (error) {
+            showToast('网络错误', 'error');
+        }
+    });
 
     // Token 自动刷新配置表单
     document.getElementById('tokenRefreshForm').addEventListener('submit', async (e) => {

@@ -17,6 +17,7 @@ from app.utils.token_parser import TokenParser
 from app.utils.jwt_parser import JWTParser
 from app.utils.time_utils import get_now
 from app.config import settings
+from app.services.member_lifecycle import member_lifecycle_service
 
 logger = logging.getLogger(__name__)
 
@@ -1404,7 +1405,9 @@ class TeamService:
         self,
         team_id: int,
         email: str,
-        db_session: AsyncSession
+        db_session: AsyncSession,
+        is_legacy_customer: bool = False,
+        legacy_remaining_warranty_days: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         添加 Team 成员
@@ -1483,6 +1486,19 @@ class TeamService:
             team.current_members += 1
             if team.current_members >= team.max_members:
                 team.status = "full"
+
+            await member_lifecycle_service.upsert_lifecycle_event(
+                db_session,
+                email=email,
+                team_id=team_id,
+                source_type="manual",
+                event_type="legacy_seed" if is_legacy_customer else "manual_join",
+                code_or_manual_tag="MANUAL",
+                has_warranty=bool(is_legacy_customer),
+                warranty_expires_at=(get_now() + timedelta(days=legacy_remaining_warranty_days)) if (is_legacy_customer and legacy_remaining_warranty_days is not None) else None,
+                is_legacy_seeded=is_legacy_customer,
+                legacy_remaining_warranty_days=legacy_remaining_warranty_days,
+            )
 
             await db_session.commit()
 

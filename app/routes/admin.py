@@ -8,13 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 import json
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.database import get_db
 from app.dependencies.auth import require_admin
 from app.services.team import TeamService
 from app.services.redemption import RedemptionService
 from app.utils.time_utils import get_now
+from app.services.member_lifecycle import member_lifecycle_service
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,17 @@ class TeamImportRequest(BaseModel):
 class AddMemberRequest(BaseModel):
     """添加成员请求"""
     email: str = Field(..., description="成员邮箱")
+    is_legacy_customer: bool = Field(False, description="是否旧账客户")
+    legacy_remaining_warranty_days: Optional[int] = Field(None, description="旧账客户剩余质保天数")
+
+    @model_validator(mode="after")
+    def validate_legacy_fields(self):
+        if self.is_legacy_customer:
+            if self.legacy_remaining_warranty_days is None:
+                raise ValueError("旧账客户必须填写剩余质保天数")
+            if self.legacy_remaining_warranty_days < 0 or self.legacy_remaining_warranty_days > 365:
+                raise ValueError("剩余质保天数必须在 0-365 之间")
+        return self
 
 
 class CodeGenerateRequest(BaseModel):
@@ -391,7 +403,9 @@ async def add_team_member(
         result = await team_service.add_team_member(
             team_id=team_id,
             email=member_data.email,
-            db_session=db
+            db_session=db,
+            is_legacy_customer=member_data.is_legacy_customer,
+            legacy_remaining_warranty_days=member_data.legacy_remaining_warranty_days
         )
 
         if not result["success"]:
@@ -1098,6 +1112,42 @@ async def withdraw_record(
         )
 
 
+
+
+@router.get("/reminders", response_class=HTMLResponse)
+async def reminders_page(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """提醒汇总页"""
+    try:
+        from app.main import templates
+        data = await member_lifecycle_service.get_reminders(db)
+        return templates.TemplateResponse(
+            "admin/reminders/index.html",
+            {
+                "request": request,
+                "active_page": "reminders",
+                "reminders": data.get("items", []),
+            }
+        )
+    except Exception as e:
+        logger.error(f"加载提醒汇总页失败: {e}")
+        raise HTTPException(status_code=500, detail=f"加载提醒汇总页失败: {str(e)}")
+
+
+@router.post("/reminders/{reminder_id}/send")
+async def send_reminder(
+    reminder_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """手动发送提醒邮件"""
+    result = await member_lifecycle_service.send_reminder_email(db, reminder_id)
+    status_code = status.HTTP_200_OK if result.get("success") else status.HTTP_400_BAD_REQUEST
+    return JSONResponse(status_code=status_code, content=result)
+
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(
     request: Request,
@@ -1125,6 +1175,7 @@ async def settings_page(
         proxy_config = await settings_service.get_proxy_config(db)
         log_level = await settings_service.get_log_level(db)
         token_refresh_config = await settings_service.get_token_auto_refresh_config(db)
+        reminder_email_config = await settings_service.get_reminder_email_config(db)
 
         return templates.TemplateResponse(
             "admin/settings/index.html",
@@ -1137,7 +1188,8 @@ async def settings_page(
                 "log_level": log_level,
                 "token_auto_refresh_enabled": token_refresh_config["enabled"],
                 "token_auto_refresh_interval_seconds": token_refresh_config["interval_seconds"],
-                "token_refresh_lead_seconds": token_refresh_config["lead_seconds"]
+                "token_refresh_lead_seconds": token_refresh_config["lead_seconds"],
+                "reminder_email_config": reminder_email_config
             }
         )
 
@@ -1165,6 +1217,23 @@ class TokenAutoRefreshConfigRequest(BaseModel):
     enabled: bool = Field(..., description="是否启用自动刷新")
     interval_seconds: int = Field(..., ge=5, description="检查间隔（秒，最小5）")
     lead_seconds: int = Field(..., ge=0, description="提前刷新窗口（秒）")
+
+
+class ReminderEmailConfigRequest(BaseModel):
+    """到期提醒邮件配置请求"""
+    send_channel: str = Field("smtp", description="发送通道: smtp/email_api")
+    smtp_host: str = Field("", description="SMTP 主机")
+    smtp_port: int = Field(587, ge=1, le=65535, description="SMTP 端口")
+    smtp_user: str = Field("", description="SMTP 用户")
+    smtp_password: str = Field("", description="SMTP 密码")
+    smtp_from: str = Field("", description="发件人")
+    email_api_url: str = Field("", description="邮箱API地址")
+    email_api_key: str = Field("", description="邮箱API Key")
+    email_api_token: str = Field("", description="邮箱API Token")
+    auto_send_enabled: bool = Field(False, description="是否自动发送")
+    due_days: int = Field(3, ge=0, le=30, description="提前提醒天数")
+    subject: str = Field("team空间到期提醒", description="邮件主题")
+    body_template: str = Field("", description="邮件正文模板")
 
 
 @router.post("/settings/proxy")
@@ -1302,6 +1371,57 @@ async def update_token_refresh_config(
 
     except Exception as e:
         logger.error(f"更新 Token 自动刷新配置失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"success": False, "error": f"更新失败: {str(e)}"}
+        )
+
+
+@router.post("/settings/reminder-email")
+async def update_reminder_email_config(
+    config_data: ReminderEmailConfigRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """更新到期提醒邮件配置"""
+    try:
+        from app.services.settings import settings_service
+
+        if config_data.send_channel not in {"smtp", "email_api"}:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"success": False, "error": "发送通道仅支持 smtp 或 email_api"}
+            )
+
+        success = await settings_service.update_reminder_email_config(
+            db,
+            {
+                "send_channel": config_data.send_channel,
+                "smtp_host": config_data.smtp_host.strip(),
+                "smtp_port": config_data.smtp_port,
+                "smtp_user": config_data.smtp_user.strip(),
+                "smtp_password": config_data.smtp_password,
+                "smtp_from": config_data.smtp_from.strip(),
+                "email_api_url": config_data.email_api_url.strip(),
+                "email_api_key": config_data.email_api_key.strip(),
+                "email_api_token": config_data.email_api_token.strip(),
+                "auto_send_enabled": config_data.auto_send_enabled,
+                "due_days": config_data.due_days,
+                "subject": config_data.subject.strip() or "team空间到期提醒",
+                "body_template": config_data.body_template.strip() or "您好，您加入的team工作空间一个月套餐即将到期，请及时联系管理员续期，否则到期后将踢出工作空间~",
+            }
+        )
+
+        if success:
+            return JSONResponse(content={"success": True, "message": "到期提醒邮件配置已保存"})
+
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"success": False, "error": "保存失败"}
+        )
+
+    except Exception as e:
+        logger.error(f"更新到期提醒邮件配置失败: {e}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"success": False, "error": f"更新失败: {str(e)}"}
