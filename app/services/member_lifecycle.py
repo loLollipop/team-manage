@@ -213,6 +213,22 @@ class MemberLifecycleService:
         except Exception as e:
             return {"success": False, "error": f"邮箱API请求失败: {str(e)}"}
 
+    async def get_reminder_compose_content(self, db_session: AsyncSession, reminder_id: int) -> Dict[str, Any]:
+        """获取用于手动跳转 Gmail 发件的内容"""
+        stmt = select(MemberReminderQueue).where(MemberReminderQueue.id == reminder_id)
+        result = await db_session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return {"success": False, "error": "提醒记录不存在"}
+
+        content = await self._build_reminder_message(db_session, row)
+        return {
+            "success": True,
+            "to": row.email,
+            "subject": content["subject"],
+            "body": content["body"],
+        }
+
     async def send_reminder_email(self, db_session: AsyncSession, reminder_id: int) -> Dict[str, Any]:
         stmt = select(MemberReminderQueue).where(MemberReminderQueue.id == reminder_id)
         result = await db_session.execute(stmt)

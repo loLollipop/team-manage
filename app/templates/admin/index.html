@@ -42,7 +42,7 @@
         <div class="stat-icon"><i data-lucide="mail-warning"></i></div>
         <div class="stat-info-group">
             <div class="stat-value">{{ stats.pending_reminders }}</div>
-            <div class="stat-label">待发送提醒</div>
+            <div class="stat-label">待处理提醒</div>
         </div>
     </div>
 </div>
@@ -79,7 +79,7 @@
                     <td>{{ item.days_left }}</td>
                     <td>{{ item.status }}</td>
                     <td style="text-align:right;">
-                        <button class="btn btn-sm btn-primary" onclick="sendDashboardReminder('{{ item.id }}')">发送提醒</button>
+                        <button class="btn btn-sm btn-primary" onclick="sendDashboardReminder('{{ item.id }}')">去发件</button>
                     </td>
                 </tr>
                 {% endfor %}
@@ -382,11 +382,11 @@
 <script>
     async function sendDashboardReminder(reminderId) {
         try {
-            const resp = await fetch(`/admin/reminders/${reminderId}/send`, { method: 'POST' });
+            const resp = await fetch(`/admin/reminders/${reminderId}/compose-gmail`, { method: 'POST' });
             const data = await resp.json();
             if (data.success) {
-                showToast('发送成功', 'success');
-                setTimeout(() => location.reload(), 800);
+                window.open(data.compose_url, '_blank');
+                showToast('已打开 Gmail 发件页', 'success');
             } else {
                 showToast(data.error || '发送失败', 'error');
             }

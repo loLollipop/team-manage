@@ -39,7 +39,7 @@
                     <td>{{ item.status }}</td>
                     <td>{{ item.last_sent_at.strftime('%Y-%m-%d %H:%M') if item.last_sent_at else '-' }}</td>
                     <td style="text-align: right;">
-                        <button class="btn btn-sm btn-primary" onclick="sendReminder('{{ item.id }}')">发送提醒</button>
+                        <button class="btn btn-sm btn-primary" onclick="sendReminder('{{ item.id }}')">去发件</button>
                     </td>
                 </tr>
                 {% endfor %}
@@ -58,11 +58,11 @@
 <script>
 async function sendReminder(reminderId) {
     try {
-        const resp = await fetch(`/admin/reminders/${reminderId}/send`, { method: 'POST' });
+        const resp = await fetch(`/admin/reminders/${reminderId}/compose-gmail`, { method: 'POST' });
         const data = await resp.json();
         if (data.success) {
-            alert('发送成功');
-            location.reload();
+            window.open(data.compose_url, '_blank');
+            alert('已打开 Gmail 发件页');
         } else {
             alert(data.error || '发送失败');
         }

@@ -4,6 +4,7 @@
 """
 import logging
 from typing import Optional, List
+from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 import json
@@ -1230,17 +1231,7 @@ class TokenAutoRefreshConfigRequest(BaseModel):
 
 
 class ReminderEmailConfigRequest(BaseModel):
-    """到期提醒邮件配置请求"""
-    send_channel: str = Field("smtp", description="发送通道: smtp/email_api")
-    smtp_host: str = Field("", description="SMTP 主机")
-    smtp_port: int = Field(587, ge=1, le=65535, description="SMTP 端口")
-    smtp_user: str = Field("", description="SMTP 用户")
-    smtp_password: str = Field("", description="SMTP 密码")
-    smtp_from: str = Field("", description="发件人")
-    email_api_url: str = Field("", description="邮箱API地址")
-    email_api_key: str = Field("", description="邮箱API Key")
-    email_api_token: str = Field("", description="邮箱API Token")
-    auto_send_enabled: bool = Field(False, description="是否自动发送")
+    """到期提醒邮件配置请求（手动发件模板）"""
     due_days: int = Field(3, ge=0, le=30, description="提前提醒天数")
     subject: str = Field("team空间到期提醒", description="邮件主题")
     body_template: str = Field("", description="邮件正文模板")
@@ -1397,25 +1388,9 @@ async def update_reminder_email_config(
     try:
         from app.services.settings import settings_service
 
-        if config_data.send_channel not in {"smtp", "email_api"}:
-            return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                content={"success": False, "error": "发送通道仅支持 smtp 或 email_api"}
-            )
-
         success = await settings_service.update_reminder_email_config(
             db,
             {
-                "send_channel": config_data.send_channel,
-                "smtp_host": config_data.smtp_host.strip(),
-                "smtp_port": config_data.smtp_port,
-                "smtp_user": config_data.smtp_user.strip(),
-                "smtp_password": config_data.smtp_password,
-                "smtp_from": config_data.smtp_from.strip(),
-                "email_api_url": config_data.email_api_url.strip(),
-                "email_api_key": config_data.email_api_key.strip(),
-                "email_api_token": config_data.email_api_token.strip(),
-                "auto_send_enabled": config_data.auto_send_enabled,
                 "due_days": config_data.due_days,
                 "subject": config_data.subject.strip() or "team空间到期提醒",
                 "body_template": config_data.body_template.strip() or "您好，您加入的team工作空间一个月套餐即将到期，请及时联系管理员续期，否则到期后将踢出工作空间~",
@@ -1436,3 +1411,27 @@ async def update_reminder_email_config(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"success": False, "error": f"更新失败: {str(e)}"}
         )
+
+
+@router.post("/reminders/{reminder_id}/compose-gmail")
+async def compose_reminder_gmail(
+    reminder_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """生成 Gmail 写信链接（手动发送）"""
+    content = await member_lifecycle_service.get_reminder_compose_content(db, reminder_id)
+    if not content.get("success"):
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content=content)
+
+    params = urlencode({
+        "view": "cm",
+        "fs": "1",
+        "to": content.get("to", ""),
+        "su": content.get("subject", ""),
+        "body": content.get("body", ""),
+    })
+    return JSONResponse(content={
+        "success": True,
+        "compose_url": f"https://mail.google.com/mail/?{params}",
+    })

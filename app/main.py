@@ -105,10 +105,6 @@ async def lifespan(app: FastAPI):
                     due_days = int(reminder_cfg.get("due_days", 3))
                     result = await member_lifecycle_service.collect_due_reminders(session, due_days=due_days)
 
-                    if reminder_cfg.get("auto_send_enabled"):
-                        send_result = await member_lifecycle_service.auto_send_pending_reminders(session)
-                        logger.info("成员到期提醒自动发送结果: %s", send_result)
-
                     logger.info("成员到期提醒检查完成: %s", result)
             except asyncio.CancelledError:
                 raise
