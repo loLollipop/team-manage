@@ -125,12 +125,16 @@ async def admin_dashboard(
         all_codes_result = await redemption_service.get_all_codes(db, page=1, per_page=10000)
         all_codes = all_codes_result.get("codes", [])
 
+        reminders_result = await member_lifecycle_service.get_reminders(db)
+        reminders = reminders_result.get("items", [])
+
         # 计算统计数据
         stats = {
             "total_teams": len(all_teams),
             "available_teams": len([t for t in all_teams if t.get("status") == "active" and t.get("current_members", 0) < t.get("max_members", 6)]),
             "total_codes": len(all_codes),
-            "used_codes": len([c for c in all_codes if c.get("status") == "used"])
+            "used_codes": len([c for c in all_codes if c.get("status") == "used"]),
+            "pending_reminders": len([r for r in reminders if r.get("status") == "pending"])
         }
 
         return templates.TemplateResponse(
@@ -142,6 +146,7 @@ async def admin_dashboard(
                 "teams": teams_result.get("teams", []),
                 "stats": stats,
                 "search": search,
+                "reminders": reminders,
                 "pagination": {
                     "current_page": teams_result.get("current_page", page),
                     "total_pages": teams_result.get("total_pages", 1),
@@ -564,6 +569,9 @@ async def codes_list_page(
         all_codes_result = await redemption_service.get_all_codes(db, page=1, per_page=10000)
         all_codes = all_codes_result.get("codes", [])
 
+        reminders_result = await member_lifecycle_service.get_reminders(db)
+        reminders = reminders_result.get("items", [])
+
         # 计算统计数据
         stats = {
             "total": total_codes,
@@ -594,6 +602,7 @@ async def codes_list_page(
                 "codes": codes,
                 "stats": stats,
                 "search": search,
+                "reminders": reminders,
                 "pagination": {
                     "current_page": current_page,
                     "total_pages": total_pages,
@@ -1055,6 +1064,7 @@ async def records_page(
                     "start_date": start_date,
                     "end_date": end_date
                 },
+                "reminders": reminders,
                 "pagination": {
                     "current_page": page_int,
                     "total_pages": total_pages,

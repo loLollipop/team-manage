@@ -37,6 +37,60 @@
             <div class="stat-label">已使用兑换码</div>
         </div>
     </div>
+
+    <div class="stat-card stat-danger">
+        <div class="stat-icon"><i data-lucide="mail-warning"></i></div>
+        <div class="stat-info-group">
+            <div class="stat-value">{{ stats.pending_reminders }}</div>
+            <div class="stat-label">待发送提醒</div>
+        </div>
+    </div>
+</div>
+
+
+<!-- 到期提醒汇总（内嵌控制台） -->
+<div class="content-section" id="reminder-summary">
+    <div class="section-header">
+        <h3>提醒汇总（控制台内查看）</h3>
+        <span class="badge badge-info">{{ reminders|length }} 条</span>
+    </div>
+
+    {% if reminders %}
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>邮箱</th>
+                    <th>策略</th>
+                    <th>到期时间</th>
+                    <th>剩余天数</th>
+                    <th>状态</th>
+                    <th style="text-align:right;">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in reminders %}
+                <tr>
+                    <td>{{ item.id }}</td>
+                    <td><strong>{{ item.email }}</strong></td>
+                    <td>{{ item.policy_type }}</td>
+                    <td>{{ item.target_expires_at.strftime('%Y-%m-%d %H:%M') if item.target_expires_at else '-' }}</td>
+                    <td>{{ item.days_left }}</td>
+                    <td>{{ item.status }}</td>
+                    <td style="text-align:right;">
+                        <button class="btn btn-sm btn-primary" onclick="sendDashboardReminder('{{ item.id }}')">发送提醒</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>暂无待提醒数据</p>
+    </div>
+    {% endif %}
 </div>
 
 <!-- Team 列表 -->
@@ -326,6 +380,21 @@
 
 {% block extra_js %}
 <script>
+    async function sendDashboardReminder(reminderId) {
+        try {
+            const resp = await fetch(`/admin/reminders/${reminderId}/send`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('发送成功', 'success');
+                setTimeout(() => location.reload(), 800);
+            } else {
+                showToast(data.error || '发送失败', 'error');
+            }
+        } catch (e) {
+            showToast('网络错误', 'error');
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         // Init Column Toggler
         initColumnToggler('.data-table', 'team_list_columns');
