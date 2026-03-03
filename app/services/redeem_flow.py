@@ -292,6 +292,7 @@ class RedeemFlowService:
                     final_team_expires_at = team.expires_at
                     final_access_token_encrypted = team.access_token_encrypted
                     final_is_warranty = is_warranty_code
+                    final_warranty_expires_at = redemption_code.warranty_expires_at if is_warranty_code else None
                     
                     # 事务 commit
                 
@@ -345,7 +346,7 @@ class RedeemFlowService:
                             event_type="redeem_join",
                             code_or_manual_tag=code,
                             has_warranty=final_is_warranty,
-                            warranty_expires_at=redemption_code.warranty_expires_at if final_is_warranty else None,
+                            warranty_expires_at=final_warranty_expires_at,
                             event_time=redemption_record.redeemed_at,
                         )
                     

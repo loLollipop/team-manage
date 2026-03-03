@@ -511,8 +511,9 @@ class TeamService:
                         logger.warning(f"解析过期时间失败: {e}")
 
                 # 确定状态
+                # 新导入 Team 时还没有创建 ORM team 实例，这里应使用默认席位数
+                max_members = 6
                 status = "active"
-                max_members = team.max_members if 'team' in locals() and team else 6
                 if current_members >= max_members:
                     status = "full"
                 elif expires_at and expires_at < datetime.now():
